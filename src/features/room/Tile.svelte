@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { isTauri } from "../../lib/env";
   import type { RemoteView } from "../../lib/transport/types";
   import { t } from "../../lib/prefs.svelte";
+  import { windowFollowsElementFullscreen } from "../../lib/platform";
   import Icon from "../../ui/Icon.svelte";
 
   type Props = {
@@ -71,8 +71,8 @@
 
   onMount(() => {
     const onChange = () => {
-      // no app, a janela vai junto com a tela cheia do vídeo; no navegador, não precisa
-      if (!document.fullscreenElement && isTauri()) getCurrentWindow().setFullscreen(false);
+      // no app do Windows, a janela vai junto com a tela cheia do vídeo; no navegador e no macOS, não precisa
+      if (!document.fullscreenElement && windowFollowsElementFullscreen()) getCurrentWindow().setFullscreen(false);
     };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
@@ -84,7 +84,7 @@
       await document.exitFullscreen();
     } else {
       await tile.requestFullscreen();
-      if (isTauri()) await getCurrentWindow().setFullscreen(true);
+      if (windowFollowsElementFullscreen()) await getCurrentWindow().setFullscreen(true);
     }
   }
 
