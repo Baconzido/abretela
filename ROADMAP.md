@@ -358,6 +358,63 @@ vídeo. Plano em camadas, todas automáticas e sem custo para o dono do app:
 
 Cada camada vira uma implementação de `MediaTransport` (fase 3).
 
+### 4.4 TURN do anfitrião (decidido em novembro de 2026)
+
+**Por quê:** o log de 19/11 mostra 32 tentativas falhas e 1 certa para assistir
+o Davis. Os dois roteadores trocam a porta pública conforme o destino (o seu
+vira 59231 → 2655/2679; o dele deu certo uma vez por uma porta nova, 1027).
+Assim um lado não adivinha a porta do outro e a conexão direta só sai por
+sorte. Só um repasse resolve.
+
+**Como:** não há TURN fixo do app. Quem cria a sala configura o próprio TURN
+em Configurações; os espectadores não configuram nada.
+
+- Tipos (`src/lib/turn.ts`, um provedor por tipo atrás do mesmo contrato):
+  - **Manual**: endereços, usuário e senha (coturn com senha fixa,
+    ExpressTURN, Metered). Os espectadores recebem a mesma senha: aviso na tela.
+  - **Cloudflare**: Key ID + API token. O app do anfitrião pede à API uma
+    credencial temporária (24 h) e só ela vai para a sala.
+  - **coturn com segredo** (`use-auth-secret`): o app do anfitrião calcula a
+    credencial temporária (HMAC-SHA1) sem chamar nada.
+- O segredo fica só no PC do anfitrião (não precisa de Worker). O
+  `create_room` recebe os `iceServers` já prontos, o servidor da sala os guarda
+  e manda no `welcome` (só depois da senha da sala). Versões antigas ignoram.
+- Basta um lado ter rota pelo TURN. O str0m não tem cliente TURN, mas não
+  precisa: o espectador (WebView) pega a rota de repasse e o envio nativo só
+  manda para ela.
+- Falhar ao gerar a credencial não impede criar a sala: vai só com STUN e o
+  log avisa.
+- Depois: renovar a credencial em salas de mais de 24 h; modo "dedicado" na
+  criação da sala, onde o servidor dedicado entrega o TURN.
+
+### 4.5 Passar a sala para outra pessoa
+
+Ao sair, o anfitrião escolhe quem vira o novo anfitrião, e a sala continua.
+
+- Dá para fazer porque o vídeo não passa pelo servidor da sala: as conexões
+  entre os PCs continuam vivas enquanto a sinalização troca de lugar.
+- Passo a passo:
+  1. O anfitrião escolhe a pessoa; a sala manda `host-request` para ela.
+  2. O app dela abre servidor + túnel com a mesma senha e os mesmos limites
+     de qualidade (e o TURN dela, se tiver) e espera o túnel responder.
+  3. Ela responde `host-ready` com a URL nova; a sala antiga avisa todos
+     (`moved`, com a URL) e fecha alguns segundos depois.
+  4. Todos reconectam na URL nova com o mesmo nome e a mesma senha.
+- **Ids estáveis:** hoje o servidor numera as pessoas (1, 2, 3...). Na sala nova
+  cada um pede o id que tinha (`join` com `id`), para que as conexões abertas
+  continuem valendo. Só cai a tela do anfitrião que saiu.
+- Durante a troca (~5–45 s, o DNS do túnel novo demora) a interface mostra
+  "trocando de anfitrião", sem fechar as telas.
+- O link de convite muda (o túnel é do PC de cada um): o novo anfitrião vê o
+  link novo para mandar. No modo dedicado isso não acontece.
+- Só aparecem na lista quem tem a versão nova (o `join` diz a versão) e usa o
+  app (quem assiste pelo navegador não pode hospedar).
+- TURN: as conexões abertas pelo TURN antigo valem até a credencial vencer.
+  Se o novo anfitrião não tiver TURN, a sala nova repassa os `iceServers` que
+  já tinha (só credenciais temporárias ou as que já eram públicas na sala).
+- Fora do escopo por enquanto: o anfitrião cair sem passar a sala (aí a sala
+  acaba, como hoje).
+
 ---
 
 ## Pendências do caso do Eliaga
