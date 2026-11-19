@@ -5,6 +5,7 @@
   import { findUpdate, installUpdate, type Update } from "../../lib/update";
   import { LANGUAGES, prefs, t, type Theme } from "../../lib/prefs.svelte";
   import { canSendFromWebView } from "../../lib/capture/support";
+  import { isMac } from "../../lib/platform";
   import Icon, { type IconName } from "../../ui/Icon.svelte";
   import Toggle from "../../ui/Toggle.svelte";
   import Credits from "../../ui/Credits.svelte";
@@ -109,6 +110,8 @@
       unitDisplay: "short",
     }).format(hours ? minutes / 60 : minutes);
   }
+  // no macOS a "bandeja" é a barra de menus
+  const mac = isMac();
 
   let autostart = $state(false);
   let autostartReady = $state(false);
@@ -201,15 +204,15 @@
           <div class="group-label"><Icon name="monitor" size={15} /> {t("behavior")}</div>
           <div class="toggles">
             <Toggle
-              label={t("startWithWindows")}
-              hint={t("startWithWindowsHint")}
+              label={t(mac ? "startWithMac" : "startWithWindows")}
+              hint={t(mac ? "startWithMacHint" : "startWithWindowsHint")}
               checked={autostart}
               disabled={!autostartReady}
               onchange={setAutostart}
             />
             <Toggle
-              label={t("closeToTray")}
-              hint={t("closeToTrayHint")}
+              label={t(mac ? "closeToMenuBar" : "closeToTray")}
+              hint={t(mac ? "closeToMenuBarHint" : "closeToTrayHint")}
               checked={prefs.closeToTray}
               onchange={(v) => (prefs.closeToTray = v)}
             />
