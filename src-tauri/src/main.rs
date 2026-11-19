@@ -96,6 +96,7 @@ fn main() {
             selfhost::selfhost_add_turn,
             selfhost::selfhost_admin_key,
             capture::commands::list_sources,
+            capture::commands::capture_permission,
             capture::commands::thumbnail,
             capture::commands::start_capture,
             capture::commands::stop_capture,
