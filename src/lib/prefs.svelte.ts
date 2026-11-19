@@ -6,6 +6,7 @@ import { es } from "./locales/es";
 import { zh } from "./locales/zh";
 import { ko } from "./locales/ko";
 import { ja } from "./locales/ja";
+import { TURN_KINDS, type TurnConfig } from "./turn";
 
 export const LANGUAGES = [
   { code: "pt", name: "Português" },
@@ -36,7 +37,26 @@ type Prefs = {
   hwAccel: boolean;
   /** Envio nativo (experimental). */
   nativeSend: boolean;
+  /** Servidor de repasse (TURN) das salas que eu crio (ROADMAP, seção 4.4). */
+  turn: TurnConfig;
 };
+
+const str = (v: unknown) => (typeof v === "string" ? v : "");
+
+/** Lê a configuração de TURN salva, completando o que faltar. */
+function loadTurn(saved: unknown): TurnConfig {
+  const t = (saved && typeof saved === "object" ? saved : {}) as Record<string, unknown>;
+  switch (TURN_KINDS.includes(t.kind as TurnConfig["kind"]) ? t.kind : "none") {
+    case "manual":
+      return { kind: "manual", urls: str(t.urls), username: str(t.username), credential: str(t.credential) };
+    case "cloudflare":
+      return { kind: "cloudflare", keyId: str(t.keyId), token: str(t.token) };
+    case "coturn":
+      return { kind: "coturn", urls: str(t.urls), secret: str(t.secret) };
+    default:
+      return { kind: "none" };
+  }
+}
 
 /** Nome salvo pela tela inicial em versões antigas (até a 0.2.0). */
 function legacyName(): string {
@@ -60,6 +80,7 @@ function load(): Prefs {
     sounds: saved.sounds ?? true,
     hwAccel: saved.hwAccel ?? true,
     nativeSend: saved.nativeSend ?? false,
+    turn: loadTurn(saved.turn),
   };
 }
 
@@ -129,6 +150,14 @@ export const prefs = {
   },
   set nativeSend(v: boolean) {
     state.nativeSend = v;
+    apply();
+  },
+  /** TURN das salas que eu crio; os segredos ficam só neste PC. Vale a partir da próxima sala. */
+  get turn(): TurnConfig {
+    return state.turn;
+  },
+  set turn(v: TurnConfig) {
+    state.turn = loadTurn(v);
     apply();
   },
 };

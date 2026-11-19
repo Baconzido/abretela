@@ -60,6 +60,8 @@ struct Hub {
     settings: RoomSettings,
     password: String,
     page: InvitePage,
+    /// Servidores de repasse (TURN) do anfitrião, mandados no "welcome".
+    ice_servers: Value,
 }
 
 #[derive(Deserialize)]
@@ -79,7 +81,12 @@ pub struct RunningServer {
     pub stop: watch::Sender<bool>,
 }
 
-pub async fn start(settings: RoomSettings, password: String, page: InvitePage) -> std::io::Result<RunningServer> {
+pub async fn start(
+    settings: RoomSettings,
+    password: String,
+    page: InvitePage,
+    ice_servers: Value,
+) -> std::io::Result<RunningServer> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let (stop, stop_rx) = watch::channel(false);
@@ -91,6 +98,7 @@ pub async fn start(settings: RoomSettings, password: String, page: InvitePage) -
         settings,
         password,
         page,
+        ice_servers,
     });
     let app = Router::new()
         .route("/", get(invite_handler))
@@ -194,10 +202,11 @@ async fn handle_socket(socket: WebSocket, hub: Arc<Hub>) {
 
                 let mut peers = hub.peers.lock().await;
                 let others: Vec<PeerInfo> = peers.values().map(|p| p.info.clone()).collect();
-                send(
-                    &tx,
-                    json!({ "type": "welcome", "id": id, "peers": others, "settings": hub.settings }),
-                );
+                let mut welcome = json!({ "type": "welcome", "id": id, "peers": others, "settings": hub.settings });
+                if hub.ice_servers.as_array().is_some_and(|a| !a.is_empty()) {
+                    welcome["iceServers"] = hub.ice_servers.clone();
+                }
+                send(&tx, welcome);
                 broadcast(&peers, json!({ "type": "peer-joined", "peer": info }));
                 peers.insert(id.clone(), Peer { info, tx: tx.clone() });
                 my_id = Some(id);

@@ -13,7 +13,8 @@ export type PeerInfo = { id: string; name: string; sharing: boolean; label?: str
 export type SignalData = TransportSignal | ThumbSignal;
 
 export type ServerMsg =
-  | { type: "welcome"; id: string; peers: PeerInfo[]; settings: RoomSettings }
+  /** `iceServers`: o TURN do anfitrião (salas de versões antigas não mandam). */
+  | { type: "welcome"; id: string; peers: PeerInfo[]; settings: RoomSettings; iceServers?: unknown }
   | { type: "peer-joined"; peer: PeerInfo }
   | { type: "peer-left"; id: string }
   | { type: "peer-updated"; id: string; sharing: boolean; label?: string | null }

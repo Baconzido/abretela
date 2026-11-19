@@ -39,6 +39,8 @@ export type TransportHost = {
   nameOf: (id: string) => string;
   /** A tela de alguém que eu assisto mudou (chegou o vídeo, conectou, falhou). */
   onRemote: (id: string, patch: Partial<RemoteView>) => void;
+  /** Servidores de repasse (TURN) que a sala mandou, além do STUN de sempre. */
+  iceServers?: () => RTCIceServer[];
 };
 
 export interface MediaTransport {

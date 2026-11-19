@@ -1,6 +1,6 @@
 //! Comandos do app para a sala: criar (servidor local + túnel) e fechar.
 
-use super::{invite_page::InvitePage, server};
+use super::{invite_page::InvitePage, server, turn};
 use crate::tunnel;
 use serde::Serialize;
 use std::sync::Mutex;
@@ -49,6 +49,8 @@ pub async fn create_room(
     password: Option<String>,
     host_name: Option<String>,
     lang: Option<String>,
+    // servidores de repasse (TURN) já prontos, com credencial temporária se houver
+    ice_servers: Option<serde_json::Value>,
 ) -> Result<RoomInfo, String> {
     state.close();
 
@@ -68,7 +70,7 @@ pub async fn create_room(
         host_name: host_name.unwrap_or_default().trim().chars().take(32).collect(),
         lang: lang.unwrap_or_default(),
     };
-    let server = server::start(settings, password.clone(), page).await.map_err(|e| {
+    let server = server::start(settings, password.clone(), page, turn::room_ice_servers(ice_servers)).await.map_err(|e| {
         log_error!("room", "Could not start the local room server: {e}");
         format!("falha ao iniciar servidor: {e}")
     })?;

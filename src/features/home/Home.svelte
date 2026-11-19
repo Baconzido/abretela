@@ -13,6 +13,7 @@
     type RoomSettings,
   } from "../../lib/quality";
   import { prefs, t } from "../../lib/prefs.svelte";
+  import { turnServersForRoom } from "../../lib/turn";
   import Credits from "../../ui/Credits.svelte";
   import Icon from "../../ui/Icon.svelte";
   import Avatar from "../../ui/Avatar.svelte";
@@ -94,11 +95,14 @@
     error = null;
     busy = t("creatingRoom");
     try {
+      // TURN do anfitrião: nunca impede a sala de abrir (sem ele, só conexão direta)
+      const iceServers = await turnServersForRoom($state.snapshot(prefs.turn));
       const info = await invoke<{ port: number; url: string; password: string }>("create_room", {
         settings: $state.snapshot(settings),
         password: roomPassword.trim() || null,
         hostName: trimmedName,
         lang: prefs.lang,
+        iceServers: iceServers.length ? iceServers : null,
       });
       const client = new RoomClient(`ws://127.0.0.1:${info.port}/ws`, trimmedName, info.password, {
         nativeSend: prefs.nativeSend,

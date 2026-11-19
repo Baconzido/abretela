@@ -17,11 +17,7 @@ import { describeSdp, summarizeRoutes, type Route } from "./routes";
 import { AUDIO_BITRATE, tuneOpus } from "./sdp";
 import type { MediaTransport, Publication, TransportHost, TransportSignal } from "./types";
 
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [
-    { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] },
-  ],
-};
+const STUN: RTCIceServer = { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] };
 
 /** Executa as operações de uma conexão em ordem (evita corridas de SDP/ICE). */
 class Conn implements Instrumented {
@@ -76,6 +72,11 @@ export class MeshTransport implements MediaTransport {
 
   private nameOf(id: string) {
     return this.host.nameOf(id);
+  }
+
+  /** STUN de sempre + o TURN da sala, se o anfitrião configurou um. */
+  private rtcConfig(): RTCConfiguration {
+    return { iceServers: [STUN, ...(this.host.iceServers?.() ?? [])] };
   }
 
   // ---------- transmitir ----------
@@ -136,7 +137,7 @@ export class MeshTransport implements MediaTransport {
     log.info("sharing", `${this.nameOf(viewerId)} wants to watch. Tracks: ${describeTracks(stream)}`);
     this.closeOut(viewerId, "starting over for a new request");
 
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(this.rtcConfig());
     const conn = new Conn(pc, "sharing", who);
     this.out.set(viewerId, conn);
     instrument(conn);
@@ -252,7 +253,7 @@ export class MeshTransport implements MediaTransport {
       noteClosed(old, "a new offer replaced it");
       old.pc.close();
     }
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(this.rtcConfig());
     const conn = new Conn(pc, "watching", `from ${this.nameOf(from)}`);
     this.inc.set(from, conn);
     instrument(conn, (state) => {

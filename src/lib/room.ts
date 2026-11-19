@@ -6,6 +6,7 @@ import { describeError, log, logNetwork } from "./log";
 import { DEFAULT_SETTINGS, heightTier, qualityLabel, viewerHeight, type Quality, type RoomSettings } from "./quality";
 import { Signaling, type PeerInfo, type ServerMsg, type SignalData } from "./signaling";
 import { Thumbs } from "./thumbs";
+import { cleanIceServers, describeUrls, relayUrls } from "./turn";
 import { describeTracks } from "./transport/diagnostics";
 import { MeshTransport } from "./transport/mesh";
 import { NativeTransport } from "./transport/native";
@@ -41,6 +42,8 @@ export class RoomClient {
   /** Tela aberta na janela flutuante e a altura dela (continua visível com o app minimizado). */
   private pip: { id: string; height: number } | null = null;
   private onVisibility = () => this.watching.forEach((id) => this.sendView(id));
+  /** Servidores de repasse (TURN) do anfitrião, vindos no "welcome". */
+  private iceServers: RTCIceServer[] = [];
 
   constructor(
     url: string,
@@ -56,6 +59,7 @@ export class RoomClient {
       signal: (to, data) => this.signaling.signal(to, data),
       nameOf: (id) => this.nameOf(id),
       onRemote: (id, patch) => this.setView(id, patch),
+      iceServers: () => this.iceServers,
     };
     this.nativeSend = !!options.nativeSend;
     this.transport = this.nativeSend ? new NativeTransport(host) : new MeshTransport(host);
@@ -134,6 +138,14 @@ export class RoomClient {
         document.addEventListener("visibilitychange", this.onVisibility);
         const others = msg.peers.map((p) => `"${p.name}"`).join(", ");
         log.info("room", `Joined the room (${others ? `${others} already there` : "nobody else there yet"})`);
+        this.iceServers = cleanIceServers(msg.iceServers);
+        const relays = relayUrls(this.iceServers);
+        log.info(
+          "room",
+          relays.length
+            ? `This room has a relay server (TURN) for when a direct connection fails: ${describeUrls(relays)}`
+            : "This room has no relay server (TURN): only direct connections",
+        );
         logNetwork("when joining the room");
         break;
       }

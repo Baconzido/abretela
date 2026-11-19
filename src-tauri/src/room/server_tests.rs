@@ -17,7 +17,7 @@ const SETTINGS: RoomSettings = RoomSettings { min_height: 480, max_height: 1080,
 
 async fn start_room() -> RunningServer {
     let page = InvitePage { host_name: "Ana".into(), lang: "pt".into() };
-    server::start(SETTINGS, PASSWORD.into(), page).await.unwrap()
+    server::start(SETTINGS, PASSWORD.into(), page, serde_json::Value::Null).await.unwrap()
 }
 
 async fn connect(srv: &RunningServer) -> Ws {
@@ -103,6 +103,25 @@ async fn right_password_gets_welcome_with_people_and_settings() {
         recv(&mut ws).await,
         json!({ "type": "peer-joined", "peer": { "id": bia, "name": "Bia", "sharing": false, "label": null } })
     );
+}
+
+#[tokio::test]
+async fn welcome_carries_the_host_relay_servers_only_when_there_are_some() {
+    // sem TURN: o campo nem aparece (como nas versões antigas)
+    let srv = start_room().await;
+    let (_ws, _, welcome) = join(&srv, "Ana").await;
+    assert!(welcome.get("iceServers").is_none(), "{welcome}");
+
+    let turn = json!([{ "urls": ["turn:t.example.com:3478"], "username": "u", "credential": "p" }]);
+    let page = InvitePage { host_name: "Ana".into(), lang: "pt".into() };
+    let srv = server::start(SETTINGS, PASSWORD.into(), page, turn.clone()).await.unwrap();
+    let (_ws, _, welcome) = join(&srv, "Bia").await;
+    assert_eq!(welcome["iceServers"], turn);
+
+    // senha errada não recebe nada da sala, nem o TURN
+    let mut ws = connect(&srv).await;
+    send(&mut ws, json!({ "type": "join", "name": "Intruso", "password": "000000" })).await;
+    assert_eq!(recv(&mut ws).await, json!({ "type": "error", "reason": "wrong-password" }));
 }
 
 #[tokio::test]

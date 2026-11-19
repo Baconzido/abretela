@@ -78,6 +78,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             room::commands::create_room,
             room::commands::close_room,
+            room::turn::turn_cloudflare,
             capture::commands::list_sources,
             capture::commands::thumbnail,
             capture::commands::start_capture,
