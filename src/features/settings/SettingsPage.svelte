@@ -8,6 +8,14 @@
   import Toggle from "../../ui/Toggle.svelte";
   import Credits from "../../ui/Credits.svelte";
   import Avatar from "../../ui/Avatar.svelte";
+  import {
+    isTurnComplete,
+    renewsPassword,
+    TURN_KINDS,
+    TURN_LIFETIMES,
+    type TurnConfig,
+    type TurnKind,
+  } from "../../lib/turn";
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -62,6 +70,41 @@
     } catch (e) {
       upd = { kind: "error", message: String(e) };
     }
+  }
+
+  // TURN das salas que eu crio: cada campo salva ao digitar
+  const turnKinds = $derived<{ value: TurnKind; label: string }[]>(
+    TURN_KINDS.map((k) => ({
+      value: k,
+      label: t(({ none: "turnNone", manual: "turnManual", cloudflare: "turnCloudflare", coturn: "turnCoturn" } as const)[k]),
+    })),
+  );
+
+  /** Troca o tipo, mantendo os endereços já digitados quando dá. */
+  function setTurnKind(kind: TurnKind) {
+    const old = prefs.turn as Partial<Record<string, string>>;
+    const urls = old.urls ?? "";
+    const next: Record<TurnKind, TurnConfig> = {
+      none: { kind: "none" },
+      manual: { kind: "manual", urls, username: "", credential: "" },
+      cloudflare: { kind: "cloudflare", keyId: "", token: "" },
+      coturn: { kind: "coturn", urls, secret: "" },
+    };
+    prefs.turn = next[kind];
+  }
+
+  function setTurnField(field: string, value: string) {
+    prefs.turn = { ...prefs.turn, [field]: value } as TurnConfig;
+  }
+
+  /** 15 -> "15 min", 120 -> "2 h" (no idioma do app). */
+  function lifetimeLabel(minutes: number) {
+    const hours = minutes >= 60 && minutes % 60 === 0;
+    return new Intl.NumberFormat(prefs.lang, {
+      style: "unit",
+      unit: hours ? "hour" : "minute",
+      unitDisplay: "short",
+    }).format(hours ? minutes / 60 : minutes);
   }
 
   let autostart = $state(false);
@@ -193,6 +236,115 @@
             />
           </div>
         </section>
+
+        <section class="settings-group">
+          <div class="group-label"><Icon name="link" size={15} /> {t("relayServer")}</div>
+          <p class="hint">{t("relayServerHint")}</p>
+          <div class="turn-form">
+            <label class="field">
+              <span>{t("turnType")}</span>
+              <select
+                value={prefs.turn.kind}
+                onchange={(e) => setTurnKind(e.currentTarget.value as TurnKind)}
+              >
+                {#each turnKinds as k (k.value)}
+                  <option value={k.value}>{k.label}</option>
+                {/each}
+              </select>
+            </label>
+
+            {#if prefs.turn.kind === "manual" || prefs.turn.kind === "coturn"}
+              <label class="field">
+                <span>{t("turnUrls")}</span>
+                <input
+                  value={prefs.turn.urls}
+                  placeholder="turn:meuservidor.com:3478"
+                  spellcheck="false"
+                  autocomplete="off"
+                  oninput={(e) => setTurnField("urls", e.currentTarget.value)}
+                />
+                <small class="hint">{t("turnUrlsHint")}</small>
+              </label>
+            {/if}
+
+            {#if prefs.turn.kind === "manual"}
+              <div class="turn-pair">
+                <label class="field">
+                  <span>{t("turnUsername")}</span>
+                  <input
+                    value={prefs.turn.username}
+                    spellcheck="false"
+                    autocomplete="off"
+                    oninput={(e) => setTurnField("username", e.currentTarget.value)}
+                  />
+                </label>
+                <label class="field">
+                  <span>{t("turnPassword")}</span>
+                  <input
+                    type="password"
+                    value={prefs.turn.credential}
+                    autocomplete="off"
+                    oninput={(e) => setTurnField("credential", e.currentTarget.value)}
+                  />
+                </label>
+              </div>
+              <p class="hint warn">{t("turnSharedWarning")}</p>
+            {:else if prefs.turn.kind === "cloudflare"}
+              <div class="turn-pair">
+                <label class="field">
+                  <span>{t("turnKeyId")}</span>
+                  <input
+                    value={prefs.turn.keyId}
+                    spellcheck="false"
+                    autocomplete="off"
+                    oninput={(e) => setTurnField("keyId", e.currentTarget.value)}
+                  />
+                </label>
+                <label class="field">
+                  <span>{t("turnToken")}</span>
+                  <input
+                    type="password"
+                    value={prefs.turn.token}
+                    autocomplete="off"
+                    oninput={(e) => setTurnField("token", e.currentTarget.value)}
+                  />
+                </label>
+              </div>
+            {:else if prefs.turn.kind === "coturn"}
+              <label class="field">
+                <span>{t("turnSecret")}</span>
+                <input
+                  type="password"
+                  value={prefs.turn.secret}
+                  autocomplete="off"
+                  oninput={(e) => setTurnField("secret", e.currentTarget.value)}
+                />
+              </label>
+            {/if}
+
+            {#if renewsPassword(prefs.turn.kind)}
+              <label class="field">
+                <span>{t("turnLifetime")}</span>
+                <select
+                  value={prefs.turnLifetime}
+                  onchange={(e) => (prefs.turnLifetime = Number(e.currentTarget.value))}
+                >
+                  {#each TURN_LIFETIMES as minutes (minutes)}
+                    <option value={minutes}>{lifetimeLabel(minutes)}</option>
+                  {/each}
+                </select>
+              </label>
+              <p class="hint">
+                {t("turnTemporary")}
+                {#if prefs.turn.kind === "cloudflare"}{t("turnRevoked")}{/if}
+              </p>
+            {/if}
+
+            {#if !isTurnComplete(prefs.turn)}
+              <p class="hint warn">{t("turnIncomplete")}</p>
+            {/if}
+          </div>
+        </section>
       {:else if section === "appearance"}
         <section class="settings-group">
           <div class="group-label"><Icon name="sun" size={15} /> {t("theme")}</div>
@@ -271,6 +423,26 @@
 </div>
 
 <style>
+  .turn-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .turn-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .turn-form small.hint {
+    margin: 0;
+  }
+
+  .hint.warn {
+    color: var(--warn-text);
+  }
+
   .lang-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);

@@ -13,6 +13,8 @@ dependencies = [
  "jpeg-encoder",
  "opus-pure",
  "rayon",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "str0m",

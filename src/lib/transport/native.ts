@@ -25,6 +25,8 @@ export class NativeTransport implements MediaTransport {
   private sharing = false;
   /** Quem está com uma conexão nativa aberta (e quando ela terminou de abrir). */
   private viewers = new Map<string, Promise<unknown>>();
+  /** O último tamanho que cada espectador pediu (para refazer a conexão). */
+  private heights = new Map<string, number>();
   private unlisten: Promise<UnlistenFn>;
 
   constructor(private host: TransportHost) {
@@ -70,6 +72,7 @@ export class NativeTransport implements MediaTransport {
 
   /** O tamanho em que a pessoa está vendo: o Rust escolhe a camada (só depois de abrir a conexão). */
   private view(id: string, height: number) {
+    this.heights.set(id, height);
     const opened = this.viewers.get(id);
     if (!opened) return;
     opened.then(() =>
@@ -78,6 +81,7 @@ export class NativeTransport implements MediaTransport {
   }
 
   private closeViewer(id: string) {
+    this.heights.delete(id);
     if (!this.viewers.delete(id)) return;
     this.call("native_viewer_close", { viewer: id }, `Closing the connection to ${this.host.nameOf(id)}`);
   }
@@ -130,6 +134,16 @@ export class NativeTransport implements MediaTransport {
         log.info("sharing", `${this.host.nameOf(from)} stopped watching`);
         this.closeViewer(from);
         return;
+      case "restart": {
+        // o envio nativo não renegocia rotas: refaz a conexão (a tela pisca)
+        if (!this.viewers.has(from)) return;
+        log.info("sharing", `${this.host.nameOf(from)} needs new routes (relay server password changed); reconnecting them`);
+        const height = this.heights.get(from);
+        this.closeViewer(from);
+        this.openViewer(from);
+        if (height !== undefined) this.view(from, height);
+        return;
+      }
       case "view":
         // qualidade por espectador: camadas no Rust (ROADMAP, parte 3d)
         this.view(from, Math.max(0, Number(data.height) || 0));
@@ -159,6 +173,10 @@ export class NativeTransport implements MediaTransport {
         this.mesh.handleSignal(from, data);
         return;
     }
+  }
+
+  refreshIceServers() {
+    this.mesh.refreshIceServers();
   }
 
   removePeer(peerId: string) {

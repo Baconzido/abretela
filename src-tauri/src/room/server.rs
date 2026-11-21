@@ -60,6 +60,9 @@ struct Hub {
     settings: RoomSettings,
     password: String,
     page: InvitePage,
+    /// Servidores de repasse (TURN) do anfitrião, mandados no "welcome". Mudam
+    /// quando o anfitrião renova a senha temporária.
+    ice_servers: std::sync::Mutex<Value>,
 }
 
 #[derive(Deserialize)]
@@ -77,9 +80,34 @@ enum ClientMsg {
 pub struct RunningServer {
     pub port: u16,
     pub stop: watch::Sender<bool>,
+    pub handle: RoomHandle,
 }
 
-pub async fn start(settings: RoomSettings, password: String, page: InvitePage) -> std::io::Result<RunningServer> {
+/// Mexe na sala aberta por fora do WebSocket (o app do anfitrião).
+#[derive(Clone)]
+pub struct RoomHandle(Arc<Hub>);
+
+impl RoomHandle {
+    /// Troca os servidores de repasse (TURN) da sala e avisa todo mundo. Quem
+    /// entrar depois já recebe os novos no "welcome".
+    pub async fn set_ice_servers(&self, ice_servers: Value) {
+        *self.0.ice_servers.lock().unwrap() = ice_servers.clone();
+        let peers = self.0.peers.lock().await;
+        broadcast(&peers, json!({ "type": "ice-servers", "iceServers": ice_servers }));
+    }
+
+    /// Os servidores de repasse que a sala está mandando agora.
+    pub fn ice_servers(&self) -> Value {
+        self.0.ice_servers.lock().unwrap().clone()
+    }
+}
+
+pub async fn start(
+    settings: RoomSettings,
+    password: String,
+    page: InvitePage,
+    ice_servers: Value,
+) -> std::io::Result<RunningServer> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let (stop, stop_rx) = watch::channel(false);
@@ -91,7 +119,9 @@ pub async fn start(settings: RoomSettings, password: String, page: InvitePage) -
         settings,
         password,
         page,
+        ice_servers: std::sync::Mutex::new(ice_servers),
     });
+    let handle = RoomHandle(hub.clone());
     let app = Router::new()
         .route("/", get(invite_handler))
         .route("/logo.png", get(|| async { ([(header::CONTENT_TYPE, "image/png")], LOGO_PNG) }))
@@ -108,7 +138,7 @@ pub async fn start(settings: RoomSettings, password: String, page: InvitePage) -
             .await;
     });
 
-    Ok(RunningServer { port, stop })
+    Ok(RunningServer { port, stop, handle })
 }
 
 async fn invite_handler(headers: HeaderMap, State(hub): State<Arc<Hub>>) -> Html<String> {
@@ -194,10 +224,12 @@ async fn handle_socket(socket: WebSocket, hub: Arc<Hub>) {
 
                 let mut peers = hub.peers.lock().await;
                 let others: Vec<PeerInfo> = peers.values().map(|p| p.info.clone()).collect();
-                send(
-                    &tx,
-                    json!({ "type": "welcome", "id": id, "peers": others, "settings": hub.settings }),
-                );
+                let mut welcome = json!({ "type": "welcome", "id": id, "peers": others, "settings": hub.settings });
+                let ice_servers = hub.ice_servers.lock().unwrap().clone();
+                if ice_servers.as_array().is_some_and(|a| !a.is_empty()) {
+                    welcome["iceServers"] = ice_servers;
+                }
+                send(&tx, welcome);
                 broadcast(&peers, json!({ "type": "peer-joined", "peer": info }));
                 peers.insert(id.clone(), Peer { info, tx: tx.clone() });
                 my_id = Some(id);

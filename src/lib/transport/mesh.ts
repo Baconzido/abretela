@@ -11,17 +11,14 @@ import {
   noteClosed,
   noteLocalRoute,
   noteRemoteRoute,
+  usesRelay,
   type Instrumented,
 } from "./diagnostics";
 import { describeSdp, summarizeRoutes, type Route } from "./routes";
 import { AUDIO_BITRATE, tuneOpus } from "./sdp";
 import type { MediaTransport, Publication, TransportHost, TransportSignal } from "./types";
 
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [
-    { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] },
-  ],
-};
+const STUN: RTCIceServer = { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] };
 
 /** Executa as operações de uma conexão em ordem (evita corridas de SDP/ICE). */
 class Conn implements Instrumented {
@@ -76,6 +73,50 @@ export class MeshTransport implements MediaTransport {
 
   private nameOf(id: string) {
     return this.host.nameOf(id);
+  }
+
+  /** STUN de sempre + o TURN da sala, se o anfitrião configurou um. */
+  private rtcConfig(): RTCConfiguration {
+    return { iceServers: [STUN, ...(this.host.iceServers?.() ?? [])] };
+  }
+
+  /** Põe o TURN atual da sala numa conexão aberta (vale para as próximas rotas). */
+  private applyIceServers(conn: Conn) {
+    try {
+      conn.pc.setConfiguration({ ...conn.pc.getConfiguration(), iceServers: this.rtcConfig().iceServers });
+    } catch (e) {
+      log.warn(conn.area, `Could not give the new relay server (TURN) password to the connection ${conn.who}: ${describeError(e)}`);
+    }
+  }
+
+  refreshIceServers() {
+    this.out.forEach((conn) => this.applyIceServers(conn));
+    for (const [sharerId, conn] of this.inc) {
+      this.applyIceServers(conn);
+      // quem assiste pede rotas novas só se a atual passa pelo TURN: a senha
+      // antiga vai ser revogada e a rota cairia
+      void usesRelay(conn.pc).then((relayed) => {
+        if (!relayed || this.inc.get(sharerId) !== conn || conn.pc.connectionState === "closed") return;
+        log.info("watching", `Asking ${this.nameOf(sharerId)} for new routes with the new relay server (TURN) password`);
+        this.signal(sharerId, { kind: "restart" });
+      });
+    }
+  }
+
+  /** Quem transmite: rotas novas na mesma conexão (ICE restart), sem derrubar o vídeo. */
+  private restartIce(viewerId: string) {
+    const conn = this.out.get(viewerId);
+    if (!conn) {
+      log.warn("sharing", `${this.nameOf(viewerId)} asked for new routes, but no connection with them is open`);
+      return;
+    }
+    conn.run("Looking for new routes", async () => {
+      this.applyIceServers(conn);
+      const offer = await conn.pc.createOffer({ iceRestart: true });
+      await conn.pc.setLocalDescription({ type: "offer", sdp: tuneOpus(offer.sdp!) });
+      this.signal(viewerId, { kind: "offer", sdp: conn.pc.localDescription!.sdp, restart: true });
+      log.info("sharing", `Looking for new routes ${conn.who} (the relay server password changed)`);
+    });
   }
 
   // ---------- transmitir ----------
@@ -136,7 +177,7 @@ export class MeshTransport implements MediaTransport {
     log.info("sharing", `${this.nameOf(viewerId)} wants to watch. Tracks: ${describeTracks(stream)}`);
     this.closeOut(viewerId, "starting over for a new request");
 
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(this.rtcConfig());
     const conn = new Conn(pc, "sharing", who);
     this.out.set(viewerId, conn);
     instrument(conn);
@@ -241,9 +282,22 @@ export class MeshTransport implements MediaTransport {
     );
   }
 
-  private acceptOffer(from: string, sdp: string) {
+  private acceptOffer(from: string, sdp: string, restart = false) {
     if (!this.watching.has(from)) {
       log.warn("watching", `Got an offer from ${this.nameOf(from)}, but I did not ask to watch them; ignoring it`);
+      return;
+    }
+    const open = this.inc.get(from);
+    if (restart && open && open.pc.connectionState !== "closed") {
+      // mesma conexão, rotas novas: o vídeo continua enquanto troca
+      open.run("Answering the new routes", async () => {
+        this.applyIceServers(open);
+        await open.pc.setRemoteDescription({ type: "offer", sdp });
+        const answer = await open.pc.createAnswer();
+        await open.pc.setLocalDescription({ type: "answer", sdp: tuneOpus(answer.sdp!) });
+        this.signal(from, { kind: "answer", sdp: open.pc.localDescription!.sdp });
+        log.info("watching", `Switching to new routes ${open.who}`);
+      });
       return;
     }
     log.info("watching", `Got the offer from ${this.nameOf(from)}: ${describeSdp(sdp)}`);
@@ -252,7 +306,7 @@ export class MeshTransport implements MediaTransport {
       noteClosed(old, "a new offer replaced it");
       old.pc.close();
     }
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(this.rtcConfig());
     const conn = new Conn(pc, "watching", `from ${this.nameOf(from)}`);
     this.inc.set(from, conn);
     instrument(conn, (state) => {
@@ -297,7 +351,10 @@ export class MeshTransport implements MediaTransport {
         this.applyView(from);
         break;
       case "offer":
-        this.acceptOffer(from, data.sdp);
+        this.acceptOffer(from, data.sdp, !!data.restart);
+        break;
+      case "restart":
+        this.restartIce(from);
         break;
       case "answer": {
         const conn = this.out.get(from);

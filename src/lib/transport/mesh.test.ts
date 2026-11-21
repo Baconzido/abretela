@@ -17,6 +17,8 @@ function network() {
   const sent: typeof queue = [];
   const nodes = new Map<string, MeshTransport>();
   const remotes = new Map<string, Partial<RemoteView>>();
+  /** O TURN que a "sala" mandou (o mesmo para todos). */
+  const room = { iceServers: [] as RTCIceServer[] };
   const add = (id: string) => {
     const t = new MeshTransport({
       signal: (to, data) => {
@@ -25,6 +27,7 @@ function network() {
       },
       nameOf: (x) => `"${x}"`,
       onRemote: (from, patch) => remotes.set(`${id}<-${from}`, { ...remotes.get(`${id}<-${from}`), ...patch }),
+      iceServers: () => room.iceServers,
     });
     nodes.set(id, t);
     return t;
@@ -38,7 +41,7 @@ function network() {
       for (const m of batch) nodes.get(m.to)?.handleSignal(m.from, m.data);
     }
   };
-  return { add, pump, sent, remotes };
+  return { add, pump, sent, remotes, room };
 }
 
 const pub = (s: MediaStream, height = 1080, fps = 60): Publication => ({
@@ -76,6 +79,47 @@ describe("MeshTransport", () => {
 
     viewerPc.ontrack!({ streams: [screen], track: track("video") });
     expect(net.remotes.get("bia<-ana")).toEqual({ stream: screen });
+  });
+
+  it("senha nova do TURN: quem assiste pelo repasse pede rotas novas na mesma conexão", async () => {
+    const net = network();
+    const ana = net.add("ana");
+    const bia = net.add("bia");
+    ana.publish(pub(stream("video")));
+    bia.watch("ana");
+    await net.pump();
+    const [sharerPc, viewerPc] = FakePC.all;
+    viewerPc.useRelay();
+    const before = net.sent.length;
+
+    const renewed = [{ urls: ["turn:t.com:3478"], username: "nova", credential: "p" }];
+    net.room.iceServers = renewed;
+    ana.refreshIceServers();
+    bia.refreshIceServers();
+    await net.pump();
+
+    const after = net.sent.slice(before).map((m) => `${m.from}:${m.data.kind}`);
+    expect(after).toEqual(["bia:restart", "ana:offer", "bia:answer"]);
+    expect(net.sent[before + 1].data).toMatchObject({ kind: "offer", restart: true });
+    expect(sharerPc.offers.at(-1)).toEqual({ iceRestart: true });
+    expect(FakePC.all).toHaveLength(2); // nenhuma conexão nova
+    expect(sharerPc.closed || viewerPc.closed).toBe(false);
+    for (const pc of [sharerPc, viewerPc]) expect(pc.config.iceServers).toContainEqual(renewed[0]);
+  });
+
+  it("senha nova do TURN: conexão direta só recebe a configuração, sem renegociar", async () => {
+    const net = network();
+    const ana = net.add("ana");
+    const bia = net.add("bia");
+    ana.publish(pub(stream("video")));
+    bia.watch("ana");
+    await net.pump();
+    const before = net.sent.length;
+    net.room.iceServers = [{ urls: ["turn:t.com"], username: "u", credential: "p" }];
+    bia.refreshIceServers();
+    await net.pump();
+    expect(net.sent.length).toBe(before);
+    expect(FakePC.all[1].config.iceServers).toHaveLength(2);
   });
 
   it("ignora oferta de quem eu não pedi para assistir", async () => {

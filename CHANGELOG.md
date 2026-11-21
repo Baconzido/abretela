@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0] - 2026-11-21
+
+### Novidades
+- **Servidor de repasse (TURN)**: nova opção em Configurações > Geral. Quando duas pessoas não conseguem se conectar direto (os roteadores não deixam), o vídeo passa por um servidor de repasse, e a tela abre em vez de ficar travada em "conectando".
+  - Quem cria a sala configura o próprio servidor: Cloudflare (Key ID e API token), coturn com segredo, ou usuário e senha de qualquer outro serviço.
+  - Quem entra na sala não configura nada: o app recebe o servidor junto com a entrada. Só precisa estar na versão 0.6.0.
+  - O token e o segredo ficam só no PC de quem criou a sala. Na Cloudflare e no coturn, a sala recebe uma senha temporária.
+  - Você escolhe quanto essa senha dura (de 15 minutos a 24 horas, padrão 1 hora). Ela é trocada sozinha antes de vencer, sem derrubar quem está assistindo.
+  - Na Cloudflare, a senha antiga é revogada logo depois da troca, e todas quando a sala ou o app fecham. Assim, se alguém tirar a senha da sala, ela para de valer cedo.
+  - Se o servidor falhar, a sala abre do mesmo jeito, só com conexão direta, e o log diz o motivo.
+
+### Por dentro
+- Compatível com quem ainda está na 0.5.0 e anteriores: todo mundo continua se vendo na mesma sala, só que sem o repasse.
+
 ## [0.5.0] - 2026-11-09
 
 ### Novidades

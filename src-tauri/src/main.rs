@@ -34,6 +34,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .manage(RoomState::default())
+        .manage(room::turn::Leases::default())
         .setup(|app| {
             let fallback = app.path().app_log_dir().unwrap_or_else(|_| std::env::temp_dir().join("AbreTela"));
             logging::init(
@@ -78,6 +79,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             room::commands::create_room,
             room::commands::close_room,
+            room::commands::update_room_ice_servers,
+            room::turn::turn_cloudflare,
             capture::commands::list_sources,
             capture::commands::thumbnail,
             capture::commands::start_capture,
@@ -104,6 +107,8 @@ fn main() {
                 log_info!("app", "App closed");
                 capture::stop();
                 app.state::<RoomState>().close();
+                // senhas do repasse (TURN) desta sessão param de valer já
+                app.state::<room::turn::Leases>().revoke_all_now();
             }
         });
 }

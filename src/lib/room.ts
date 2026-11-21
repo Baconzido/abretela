@@ -6,6 +6,7 @@ import { describeError, log, logNetwork } from "./log";
 import { DEFAULT_SETTINGS, heightTier, qualityLabel, viewerHeight, type Quality, type RoomSettings } from "./quality";
 import { Signaling, type PeerInfo, type ServerMsg, type SignalData } from "./signaling";
 import { Thumbs } from "./thumbs";
+import { cleanIceServers, describeUrls, relayUrls } from "./turn";
 import { describeTracks } from "./transport/diagnostics";
 import { MeshTransport } from "./transport/mesh";
 import { NativeTransport } from "./transport/native";
@@ -41,6 +42,10 @@ export class RoomClient {
   /** Tela aberta na janela flutuante e a altura dela (continua visível com o app minimizado). */
   private pip: { id: string; height: number } | null = null;
   private onVisibility = () => this.watching.forEach((id) => this.sendView(id));
+  /** Servidores de repasse (TURN) do anfitrião, vindos no "welcome" (e renovados depois). */
+  private iceServers: RTCIceServer[] = [];
+  /** O que desligar ao sair da sala (ex.: a renovação do TURN do anfitrião). */
+  private cleanups: (() => void)[] = [];
 
   constructor(
     url: string,
@@ -56,6 +61,7 @@ export class RoomClient {
       signal: (to, data) => this.signaling.signal(to, data),
       nameOf: (id) => this.nameOf(id),
       onRemote: (id, patch) => this.setView(id, patch),
+      iceServers: () => this.iceServers,
     };
     this.nativeSend = !!options.nativeSend;
     this.transport = this.nativeSend ? new NativeTransport(host) : new MeshTransport(host);
@@ -105,7 +111,13 @@ export class RoomClient {
     this.emit();
   }
 
+  /** Roda `fn` quando eu sair da sala ou a conexão com ela cair. */
+  onTeardown(fn: () => void) {
+    this.cleanups.push(fn);
+  }
+
   private teardown() {
+    this.cleanups.splice(0).forEach((fn) => fn());
     document.removeEventListener("visibilitychange", this.onVisibility);
     this.capture?.stop();
     this.capture = null;
@@ -134,6 +146,14 @@ export class RoomClient {
         document.addEventListener("visibilitychange", this.onVisibility);
         const others = msg.peers.map((p) => `"${p.name}"`).join(", ");
         log.info("room", `Joined the room (${others ? `${others} already there` : "nobody else there yet"})`);
+        this.iceServers = cleanIceServers(msg.iceServers);
+        const relays = relayUrls(this.iceServers);
+        log.info(
+          "room",
+          relays.length
+            ? `This room has a relay server (TURN) for when a direct connection fails: ${describeUrls(relays)}`
+            : "This room has no relay server (TURN): only direct connections",
+        );
         logNetwork("when joining the room");
         break;
       }
@@ -170,6 +190,14 @@ export class RoomClient {
       case "signal":
         this.onSignal(msg.from, msg.data);
         break;
+      case "ice-servers": {
+        const servers = cleanIceServers(msg.iceServers);
+        if (!servers.length) break;
+        this.iceServers = servers;
+        log.info("room", "The host renewed the relay server (TURN) password");
+        this.transport.refreshIceServers();
+        break;
+      }
     }
     this.emit();
   }

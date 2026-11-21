@@ -4,6 +4,11 @@ Planos combinados para depois da 0.3.0 (novembro de 2026). Cada fase deve sair
 sem mudar nada que o usuário vê e ser testada numa sala real (2+ PCs) antes da
 próxima: um bug de conexão no meio de muitos arquivos mudados é difícil de achar.
 
+**Como trabalhar (desde a 0.5.0):** tudo vai para a branch `dev`. Para lançar
+uma versão, abre um PR de `dev` para `main`; o dono do projeto revisa e aceita.
+Só depois do PR aceito entram o CHANGELOG final, a versão e a tag `v*` (que
+publica o app para todo mundo pelo atualizador).
+
 ## Onde o projeto está
 
 - Arquitetura de plugins feita (seção 1, fases 1 a 5, branch
@@ -213,6 +218,88 @@ Graphics Capture), não do WebRTC. Sem borda no Windows 10 só capturando o
 monitor inteiro (DXGI Desktop Duplication); injetar no jogo como o OBS está
 descartado (antitrapaça).
 
+## 5. Assistir pelo navegador
+
+Quem recebe o link e não tem o app (ou está no celular) assiste pelo navegador,
+sem instalar nada. Só assistir: transmitir continua sendo pelo app.
+
+**Por que dá:** o servidor da sala já sai pelo túnel com a página do convite
+(`/`) e a sinalização (`/ws`), e assistir é WebRTC recebendo, que todo
+navegador tem. Quem transmite não muda nada: para ele, um espectador do
+navegador é igual a um do app (o envio nativo já foi testado com abas do
+Chromium assistindo). A senha já vem no link, depois do `#` (o navegador nunca
+a manda ao servidor), então ninguém precisa digitar.
+
+**O que já é web e o que depende do Tauri** (levantado em novembro de 2026):
+- Web puro, reaproveitado: `RoomClient` (`lib/room.ts`), `Signaling`,
+  `MeshTransport` (o lado de assistir), `Thumbs`, `quality.ts`, `invite.ts`,
+  idiomas (`locales/`), `Tile`, `Avatar`, `Icon`.
+- Depende do Tauri: `log.ts` (`invoke("log")`), tela cheia do `Tile`
+  (`getCurrentWindow().setFullscreen`), `Room.svelte` (`set_live`,
+  `close_room`, captura, `SourcePicker`), `App.svelte` (deep link, bandeja),
+  `Home`, `SettingsPage`, `update.ts`, `capture/native.ts`,
+  `transport/native.ts`. Os imports do `@tauri-apps` carregam no navegador; só
+  as chamadas falham, então dá para separar sem reescrever.
+
+**Fases** (cada uma testada antes da próxima, tudo na `dev`):
+
+- [ ] **W1. Núcleo sem Tauri.** `isTauri()` num lugar só; `log.ts` cai no
+  console fora do app; tela cheia pelo `document.requestFullscreen` quando não
+  é o app. Testes do `RoomClient` rodando como no navegador (sem
+  `__TAURI_INTERNALS__`). Nada muda no app.
+- [ ] **W2. Tela de assistir na web.** Segunda entrada do Vite (`watch.html` +
+  `src/web/`), saindo no mesmo `dist/`:
+  - pede só o nome (guardado no `localStorage` do navegador), lê a sala da
+    própria página (`wss://<host>/ws`) e a senha do `#`;
+  - lista quem está ao vivo, prévia ao passar o mouse, assistir uma ou várias
+    telas (`Tile`), tela cheia, janela flutuante do próprio navegador
+    (Picture-in-Picture), qualidade pelo tamanho da tela (o "view" que o app já
+    manda);
+  - som: o navegador só toca som depois de um clique na página; o botão de
+    entrar conta como esse clique (o Safari é mais chato: botão "ativar som" se
+    precisar);
+  - funciona no celular (layout de uma coluna, toque);
+  - nos seis idiomas, pelo idioma do navegador;
+  - sem configurações, bandeja, atualizações nem transmitir; um aviso "para
+    transmitir a sua tela, baixe o app" com o link.
+- [ ] **W3. Servidor e convite.**
+  - O servidor da sala serve `/watch` e os arquivos do Vite (`/assets/...`)
+    direto dos arquivos que o Tauri já embute no executável
+    (`app.asset_resolver()`), sem empacotar de novo. No `tauri dev` os
+    arquivos vêm do servidor do Vite: repassar para ele, ou só funcionar no
+    build.
+  - A página do convite ganha "Assistir no navegador" nos seis idiomas. No
+    celular e fora do Windows ela não tenta abrir o app (não existe lá) e
+    esse botão vira o principal.
+  - Cabeçalhos: `Content-Type` certo, cache para `/assets` (os nomes já têm
+    hash), nada de cache para `/watch`.
+- [ ] **W4. Segurança.**
+  - Limite de tentativas de senha por pessoa: atrás do túnel tudo chega de
+    127.0.0.1, então contar pelo `CF-Connecting-IP` (ex.: 5 erradas por minuto,
+    depois espera).
+  - Limite de pessoas na sala e de tamanho das mensagens, se ainda não houver.
+  - Conferir que a página não expõe nada além do que o app já expõe (só
+    arquivos do frontend, sem segredo).
+- [ ] **W5. "No navegador" na lista.** O `join` ganha `client: "web"` (o
+  servidor e as versões antigas ignoram campos que não conhecem); quem usa o
+  app vê um ícone de navegador ao lado do nome, e o log diz "watching from a
+  browser".
+- [ ] **W6. Testes.** Unidade (rotas, página do convite, limite de senha);
+  ponta a ponta com o navegador de verdade: sala + `/watch` servidos localmente
+  e uma aba assistindo uma transmissão (WebView e nativa), como nos testes do
+  envio nativo. Chrome, Edge, Firefox (H.264 pelo OpenH264 que ele baixa) e, se
+  der, Safari/iPhone e Android.
+- [ ] **W7. Lançar** (0.6.0): CHANGELOG, PR `dev` → `main`, e só então a tag.
+
+**Limites (ficam como estão):**
+- Só assistir. Transmitir pelo navegador daria (`getDisplayMedia`), mas pior
+  que o app e sem som por programa; fica de fora.
+- A mesma conectividade do app (só STUN): quem não conecta pelo app também não
+  conecta pelo navegador. Isso é a seção 4.
+- O link só funciona com o app do anfitrião aberto, como hoje.
+
+---
+
 ## 3. Linux e Mac
 
 Depende da fase 4 e do envio nativo (seção 2). O que hoje é só do Windows:
@@ -270,6 +357,73 @@ vídeo. Plano em camadas, todas automáticas e sem custo para o dono do app:
 4. **TURN opcional** (plugin), para quem quiser configurar a própria chave.
 
 Cada camada vira uma implementação de `MediaTransport` (fase 3).
+
+### 4.4 TURN do anfitrião (decidido em novembro de 2026)
+
+**Por quê:** o log de 19/11 mostra 32 tentativas falhas e 1 certa para assistir
+o Davis. Os dois roteadores trocam a porta pública conforme o destino (o seu
+vira 59231 → 2655/2679; o dele deu certo uma vez por uma porta nova, 1027).
+Assim um lado não adivinha a porta do outro e a conexão direta só sai por
+sorte. Só um repasse resolve.
+
+**Como:** não há TURN fixo do app. Quem cria a sala configura o próprio TURN
+em Configurações; os espectadores não configuram nada.
+
+- Tipos (`src/lib/turn.ts`, um provedor por tipo atrás do mesmo contrato):
+  - **Manual**: endereços, usuário e senha (coturn com senha fixa,
+    ExpressTURN, Metered). Os espectadores recebem a mesma senha: aviso na tela.
+  - **Cloudflare**: Key ID + API token. O app do anfitrião pede à API uma
+    credencial temporária (24 h) e só ela vai para a sala.
+  - **coturn com segredo** (`use-auth-secret`): o app do anfitrião calcula a
+    credencial temporária (HMAC-SHA1) sem chamar nada.
+- O segredo fica só no PC do anfitrião (não precisa de Worker). O
+  `create_room` recebe os `iceServers` já prontos, o servidor da sala os guarda
+  e manda no `welcome` (só depois da senha da sala). Versões antigas ignoram.
+- Basta um lado ter rota pelo TURN. O str0m não tem cliente TURN, mas não
+  precisa: o espectador (WebView) pega a rota de repasse e o envio nativo só
+  manda para ela.
+- Falhar ao gerar a credencial não impede criar a sala: vai só com STUN e o
+  log avisa.
+- **Senha que vence e é revogada** (feito em novembro de 2026): o anfitrião
+  escolhe quanto a senha temporária dura (15 min a 24 h, padrão 1 h). Uns
+  minutos antes de vencer o app gera outra e a sala manda para todos
+  (`ice-servers`). Quem assiste por uma rota que passa pelo TURN pede rotas
+  novas (`restart`) e quem transmite faz um ICE restart na mesma conexão, sem
+  derrubar o vídeo (no envio nativo a conexão é refeita). Na Cloudflare a
+  senha antiga é revogada 2 min depois da troca, e todas quando a sala ou o
+  app fecham (`room/turn.rs`). O coturn não tem revogação: a senha só vence.
+  Motivo: quem entra na sala recebe a senha e poderia gastar a franquia do
+  anfitrião; assim uma senha vazada para de valer cedo.
+- Depois: modo "dedicado" na criação da sala, onde o servidor dedicado entrega
+  o TURN.
+
+### 4.5 Passar a sala para outra pessoa
+
+Ao sair, o anfitrião escolhe quem vira o novo anfitrião, e a sala continua.
+
+- Dá para fazer porque o vídeo não passa pelo servidor da sala: as conexões
+  entre os PCs continuam vivas enquanto a sinalização troca de lugar.
+- Passo a passo:
+  1. O anfitrião escolhe a pessoa; a sala manda `host-request` para ela.
+  2. O app dela abre servidor + túnel com a mesma senha e os mesmos limites
+     de qualidade (e o TURN dela, se tiver) e espera o túnel responder.
+  3. Ela responde `host-ready` com a URL nova; a sala antiga avisa todos
+     (`moved`, com a URL) e fecha alguns segundos depois.
+  4. Todos reconectam na URL nova com o mesmo nome e a mesma senha.
+- **Ids estáveis:** hoje o servidor numera as pessoas (1, 2, 3...). Na sala nova
+  cada um pede o id que tinha (`join` com `id`), para que as conexões abertas
+  continuem valendo. Só cai a tela do anfitrião que saiu.
+- Durante a troca (~5–45 s, o DNS do túnel novo demora) a interface mostra
+  "trocando de anfitrião", sem fechar as telas.
+- O link de convite muda (o túnel é do PC de cada um): o novo anfitrião vê o
+  link novo para mandar. No modo dedicado isso não acontece.
+- Só aparecem na lista quem tem a versão nova (o `join` diz a versão) e usa o
+  app (quem assiste pelo navegador não pode hospedar).
+- TURN: as conexões abertas pelo TURN antigo valem até a credencial vencer.
+  Se o novo anfitrião não tiver TURN, a sala nova repassa os `iceServers` que
+  já tinha (só credenciais temporárias ou as que já eram públicas na sala).
+- Fora do escopo por enquanto: o anfitrião cair sem passar a sala (aí a sala
+  acaba, como hoje).
 
 ---
 
