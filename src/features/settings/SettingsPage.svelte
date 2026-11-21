@@ -8,7 +8,14 @@
   import Toggle from "../../ui/Toggle.svelte";
   import Credits from "../../ui/Credits.svelte";
   import Avatar from "../../ui/Avatar.svelte";
-  import { isTurnComplete, TURN_KINDS, type TurnConfig, type TurnKind } from "../../lib/turn";
+  import {
+    isTurnComplete,
+    renewsPassword,
+    TURN_KINDS,
+    TURN_LIFETIMES,
+    type TurnConfig,
+    type TurnKind,
+  } from "../../lib/turn";
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -88,6 +95,16 @@
 
   function setTurnField(field: string, value: string) {
     prefs.turn = { ...prefs.turn, [field]: value } as TurnConfig;
+  }
+
+  /** 15 -> "15 min", 120 -> "2 h" (no idioma do app). */
+  function lifetimeLabel(minutes: number) {
+    const hours = minutes >= 60 && minutes % 60 === 0;
+    return new Intl.NumberFormat(prefs.lang, {
+      style: "unit",
+      unit: hours ? "hour" : "minute",
+      unitDisplay: "short",
+    }).format(hours ? minutes / 60 : minutes);
   }
 
   let autostart = $state(false);
@@ -293,7 +310,6 @@
                   />
                 </label>
               </div>
-              <p class="hint">{t("turnTemporary")}</p>
             {:else if prefs.turn.kind === "coturn"}
               <label class="field">
                 <span>{t("turnSecret")}</span>
@@ -304,7 +320,24 @@
                   oninput={(e) => setTurnField("secret", e.currentTarget.value)}
                 />
               </label>
-              <p class="hint">{t("turnTemporary")}</p>
+            {/if}
+
+            {#if renewsPassword(prefs.turn.kind)}
+              <label class="field">
+                <span>{t("turnLifetime")}</span>
+                <select
+                  value={prefs.turnLifetime}
+                  onchange={(e) => (prefs.turnLifetime = Number(e.currentTarget.value))}
+                >
+                  {#each TURN_LIFETIMES as minutes (minutes)}
+                    <option value={minutes}>{lifetimeLabel(minutes)}</option>
+                  {/each}
+                </select>
+              </label>
+              <p class="hint">
+                {t("turnTemporary")}
+                {#if prefs.turn.kind === "cloudflare"}{t("turnRevoked")}{/if}
+              </p>
             {/if}
 
             {#if !isTurnComplete(prefs.turn)}

@@ -384,8 +384,18 @@ em Configurações; os espectadores não configuram nada.
   manda para ela.
 - Falhar ao gerar a credencial não impede criar a sala: vai só com STUN e o
   log avisa.
-- Depois: renovar a credencial em salas de mais de 24 h; modo "dedicado" na
-  criação da sala, onde o servidor dedicado entrega o TURN.
+- **Senha que vence e é revogada** (feito em novembro de 2026): o anfitrião
+  escolhe quanto a senha temporária dura (15 min a 24 h, padrão 1 h). Uns
+  minutos antes de vencer o app gera outra e a sala manda para todos
+  (`ice-servers`). Quem assiste por uma rota que passa pelo TURN pede rotas
+  novas (`restart`) e quem transmite faz um ICE restart na mesma conexão, sem
+  derrubar o vídeo (no envio nativo a conexão é refeita). Na Cloudflare a
+  senha antiga é revogada 2 min depois da troca, e todas quando a sala ou o
+  app fecham (`room/turn.rs`). O coturn não tem revogação: a senha só vence.
+  Motivo: quem entra na sala recebe a senha e poderia gastar a franquia do
+  anfitrião; assim uma senha vazada para de valer cedo.
+- Depois: modo "dedicado" na criação da sala, onde o servidor dedicado entrega
+  o TURN.
 
 ### 4.5 Passar a sala para outra pessoa
 

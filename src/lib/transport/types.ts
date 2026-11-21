@@ -9,11 +9,17 @@ import type { Quality } from "../quality";
 export type TransportSignal =
   | { kind: "watch" }
   | { kind: "unwatch" }
-  | { kind: "offer"; sdp: string }
+  /** `restart`: renegociação da mesma conexão (rotas novas), não uma conexão nova. */
+  | { kind: "offer"; sdp: string; restart?: boolean }
   | { kind: "answer"; sdp: string }
   | { kind: "ice"; role: "sharer" | "viewer"; candidate: RTCIceCandidateInit }
   /** Tamanho em que quem assiste está vendo a tela (altura em pixels; 0 = app escondido). */
-  | { kind: "view"; height: number };
+  | { kind: "view"; height: number }
+  /**
+   * Quem assiste pede rotas novas (ICE restart) sem fechar a conexão: a sala
+   * trocou a senha do TURN e a rota atual passa por ele. Versões antigas ignoram.
+   */
+  | { kind: "restart" };
 
 /** A tela de alguém, como eu recebo. */
 export type RemoteView = {
@@ -71,6 +77,8 @@ export interface MediaTransport {
 
   /** Mensagem do transporte que chegou de outra pessoa. */
   handleSignal(from: string, data: TransportSignal): void;
+  /** A sala trocou os servidores de repasse (TURN): as conexões abertas passam a usá-los. */
+  refreshIceServers(): void;
   /** A pessoa saiu da sala: esquece tudo dela. */
   removePeer(peerId: string): void;
   /** Fecha tudo (saí da sala). */

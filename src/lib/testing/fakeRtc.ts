@@ -53,8 +53,29 @@ export class FakePC {
   ontrack: ((e: { streams: MediaStream[]; track: FakeTrack }) => void) | null = null;
   onicecandidate: unknown = null;
   onconnectionstatechange: (() => void) | null = null;
-  constructor() {
+  config: RTCConfiguration;
+  /** Opções de cada `createOffer` (ex.: `iceRestart`). */
+  offers: RTCOfferOptions[] = [];
+  /** O que `getStats` devolve. */
+  stats = new Map<string, object>();
+  constructor(config: RTCConfiguration = {}) {
+    this.config = config;
     FakePC.all.push(this);
+  }
+  getConfiguration() {
+    return this.config;
+  }
+  setConfiguration(c: RTCConfiguration) {
+    this.config = c;
+  }
+  /** A rota escolhida passa pelo TURN (do meu lado). */
+  useRelay() {
+    this.stats = new Map<string, object>([
+      ["T", { type: "transport", selectedCandidatePairId: "P" }],
+      ["P", { type: "candidate-pair", localCandidateId: "L", remoteCandidateId: "R" }],
+      ["L", { type: "local-candidate", candidateType: "relay" }],
+      ["R", { type: "remote-candidate", candidateType: "srflx" }],
+    ]);
   }
   addTransceiver(t: FakeTrack, init: { sendEncodings: RTCRtpEncodingParameters[] }) {
     this.senders.push(new FakeSender(t, init.sendEncodings));
@@ -63,7 +84,8 @@ export class FakePC {
   getSenders() {
     return this.senders;
   }
-  async createOffer() {
+  async createOffer(options: RTCOfferOptions = {}) {
+    this.offers.push(options);
     return { type: "offer", sdp: "v=0\r\na=rtpmap:96 VP8/90000\r\n" };
   }
   async createAnswer() {
@@ -77,7 +99,7 @@ export class FakePC {
   }
   async addIceCandidate() {}
   async getStats() {
-    return new Map();
+    return this.stats;
   }
   close() {
     this.closed = true;

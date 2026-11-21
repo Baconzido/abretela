@@ -132,6 +132,20 @@ function selectedPair(stats: Stats) {
   );
 }
 
+/** A rota escolhida passa pelo servidor de repasse (TURN), de um lado ou do outro? */
+export async function usesRelay(pc: RTCPeerConnection): Promise<boolean> {
+  try {
+    const stats = (await pc.getStats()) as unknown as Stats;
+    const pair = selectedPair(stats);
+    if (!pair) return false;
+    const local = stats.get(pair.localCandidateId);
+    const remote = stats.get(pair.remoteCandidateId);
+    return local?.candidateType === "relay" || remote?.candidateType === "relay";
+  } catch {
+    return false;
+  }
+}
+
 async function getStats(conn: Instrumented): Promise<Stats | null> {
   try {
     return (await conn.pc.getStats()) as unknown as Stats;

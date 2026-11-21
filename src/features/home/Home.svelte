@@ -13,7 +13,7 @@
     type RoomSettings,
   } from "../../lib/quality";
   import { prefs, t } from "../../lib/prefs.svelte";
-  import { turnServersForRoom } from "../../lib/turn";
+  import { TurnRenewal, turnServersForRoom } from "../../lib/turn";
   import Credits from "../../ui/Credits.svelte";
   import Icon from "../../ui/Icon.svelte";
   import Avatar from "../../ui/Avatar.svelte";
@@ -96,7 +96,9 @@
     busy = t("creatingRoom");
     try {
       // TURN do anfitrião: nunca impede a sala de abrir (sem ele, só conexão direta)
-      const iceServers = await turnServersForRoom($state.snapshot(prefs.turn));
+      const turn = $state.snapshot(prefs.turn);
+      const lifetime = prefs.turnLifetime;
+      const iceServers = await turnServersForRoom(turn, lifetime);
       const info = await invoke<{ port: number; url: string; password: string }>("create_room", {
         settings: $state.snapshot(settings),
         password: roomPassword.trim() || null,
@@ -112,6 +114,14 @@
       } catch (e) {
         await invoke("close_room");
         throw e;
+      }
+      if (iceServers.length) {
+        // senha temporária: uma nova antes de vencer; a sala manda para todos
+        const renewal = new TurnRenewal(turn, lifetime, (servers) =>
+          invoke("update_room_ice_servers", { iceServers: servers }),
+        );
+        renewal.start();
+        client.onTeardown(() => renewal.stop());
       }
       onenter({ client, room: info.url, password: info.password, isHost: true });
     } catch (e) {

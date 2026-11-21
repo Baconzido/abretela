@@ -18,6 +18,8 @@ export type ServerMsg =
   | { type: "peer-joined"; peer: PeerInfo }
   | { type: "peer-left"; id: string }
   | { type: "peer-updated"; id: string; sharing: boolean; label?: string | null }
+  /** O anfitrião renovou a senha do TURN. */
+  | { type: "ice-servers"; iceServers?: unknown }
   | { type: "signal"; from: string; data: SignalData };
 
 type ClientMsg =

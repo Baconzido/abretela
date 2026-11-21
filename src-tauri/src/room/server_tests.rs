@@ -125,6 +125,19 @@ async fn welcome_carries_the_host_relay_servers_only_when_there_are_some() {
 }
 
 #[tokio::test]
+async fn renewed_relay_servers_reach_everyone_and_newcomers() {
+    let srv = start_room().await;
+    let (mut ana, _, _) = join(&srv, "Ana").await;
+    let renewed = json!([{ "urls": ["turn:t.example.com:3478"], "username": "nova", "credential": "p2" }]);
+    srv.handle.set_ice_servers(renewed.clone()).await;
+    assert_eq!(recv(&mut ana).await, json!({ "type": "ice-servers", "iceServers": renewed }));
+    assert_eq!(srv.handle.ice_servers(), renewed);
+
+    let (_bia, _, welcome) = join(&srv, "Bia").await;
+    assert_eq!(welcome["iceServers"], renewed);
+}
+
+#[tokio::test]
 async fn names_are_trimmed_and_get_a_default() {
     let srv = start_room().await;
     let (_ws, nameless, _) = join(&srv, "   ").await;

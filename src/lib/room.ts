@@ -42,8 +42,10 @@ export class RoomClient {
   /** Tela aberta na janela flutuante e a altura dela (continua visível com o app minimizado). */
   private pip: { id: string; height: number } | null = null;
   private onVisibility = () => this.watching.forEach((id) => this.sendView(id));
-  /** Servidores de repasse (TURN) do anfitrião, vindos no "welcome". */
+  /** Servidores de repasse (TURN) do anfitrião, vindos no "welcome" (e renovados depois). */
   private iceServers: RTCIceServer[] = [];
+  /** O que desligar ao sair da sala (ex.: a renovação do TURN do anfitrião). */
+  private cleanups: (() => void)[] = [];
 
   constructor(
     url: string,
@@ -109,7 +111,13 @@ export class RoomClient {
     this.emit();
   }
 
+  /** Roda `fn` quando eu sair da sala ou a conexão com ela cair. */
+  onTeardown(fn: () => void) {
+    this.cleanups.push(fn);
+  }
+
   private teardown() {
+    this.cleanups.splice(0).forEach((fn) => fn());
     document.removeEventListener("visibilitychange", this.onVisibility);
     this.capture?.stop();
     this.capture = null;
@@ -182,6 +190,14 @@ export class RoomClient {
       case "signal":
         this.onSignal(msg.from, msg.data);
         break;
+      case "ice-servers": {
+        const servers = cleanIceServers(msg.iceServers);
+        if (!servers.length) break;
+        this.iceServers = servers;
+        log.info("room", "The host renewed the relay server (TURN) password");
+        this.transport.refreshIceServers();
+        break;
+      }
     }
     this.emit();
   }

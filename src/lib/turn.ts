@@ -3,6 +3,10 @@
 // cria a sala configura o próprio, e os espectadores recebem os `iceServers`
 // pela sala. Cada tipo de TURN é um provedor atrás do mesmo contrato; o
 // segredo (token, segredo do coturn) nunca sai do PC do anfitrião.
+//
+// Na Cloudflare e no coturn a senha da sala é temporária (o anfitrião escolhe
+// quanto dura). `TurnRenewal` gera outra antes de ela vencer e a sala manda a
+// nova para todos; na Cloudflare a antiga é revogada logo depois (no Rust).
 
 import { invoke } from "@tauri-apps/api/core";
 import { describeError, log } from "./log";
@@ -20,8 +24,17 @@ export type TurnKind = TurnConfig["kind"];
 
 export const TURN_KINDS: TurnKind[] = ["none", "manual", "cloudflare", "coturn"];
 
-/** Por quanto tempo vale a credencial temporária (Cloudflare e coturn). */
-export const TURN_TTL_SECONDS = 24 * 60 * 60;
+/** Quanto pode durar a senha temporária (minutos), para escolher nas Configurações. */
+export const TURN_LIFETIMES = [15, 30, 60, 120, 360, 1440];
+export const DEFAULT_TURN_LIFETIME = 60;
+
+/** Minutos salvos -> um dos valores da lista (o padrão se for outra coisa). */
+export function turnLifetime(minutes: unknown): number {
+  return TURN_LIFETIMES.includes(minutes as number) ? (minutes as number) : DEFAULT_TURN_LIFETIME;
+}
+
+/** Tipos cuja senha é temporária (e por isso é renovada durante a sala). */
+export const renewsPassword = (kind: TurnKind) => kind === "cloudflare" || kind === "coturn";
 
 /** Um tipo de TURN: transforma a configuração nos `iceServers` da sala. */
 type TurnProvider<C extends TurnConfig> = {
@@ -29,7 +42,8 @@ type TurnProvider<C extends TurnConfig> = {
   label: string;
   /** Falta algum campo? */
   isComplete: (config: C) => boolean;
-  resolve: (config: C) => Promise<RTCIceServer[]>;
+  /** `ttl`: quanto a senha deve durar, em segundos (só nos tipos temporários). */
+  resolve: (config: C, ttl: number) => Promise<RTCIceServer[]>;
 };
 
 /** "turn:a.com:3478, turns:a.com:443" (vírgula, espaço ou linha) -> lista. */
@@ -43,7 +57,7 @@ export function parseUrls(text: string): string[] {
 const base64 = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 
 /** Credencial temporária do coturn (`use-auth-secret`, a "TURN REST API"). */
-export async function coturnCredential(secret: string, nowSeconds: number, ttl = TURN_TTL_SECONDS) {
+export async function coturnCredential(secret: string, nowSeconds: number, ttl: number) {
   const username = `${Math.floor(nowSeconds) + ttl}:abretela`;
   const key = await crypto.subtle.importKey(
     "raw",
@@ -70,11 +84,11 @@ const PROVIDERS: { [K in TurnKind]: TurnProvider<Extract<TurnConfig, { kind: K }
   cloudflare: {
     label: "Cloudflare",
     isComplete: (c) => !!c.keyId.trim() && !!c.token.trim(),
-    resolve: async (c) => {
+    resolve: async (c, ttl) => {
       const servers = await invoke<unknown>("turn_cloudflare", {
         keyId: c.keyId.trim(),
         token: c.token.trim(),
-        ttl: TURN_TTL_SECONDS,
+        ttl,
       });
       // a Cloudflare também lista endereços na porta 53, que os navegadores
       // bloqueiam (só atrasam a busca de rotas)
@@ -86,8 +100,8 @@ const PROVIDERS: { [K in TurnKind]: TurnProvider<Extract<TurnConfig, { kind: K }
   coturn: {
     label: "coturn",
     isComplete: (c) => parseUrls(c.urls).length > 0 && !!c.secret,
-    resolve: async (c) => {
-      const { username, credential } = await coturnCredential(c.secret, Date.now() / 1000);
+    resolve: async (c, ttl) => {
+      const { username, credential } = await coturnCredential(c.secret, Date.now() / 1000, ttl);
       return [{ urls: parseUrls(c.urls), username, credential }];
     },
   },
@@ -105,8 +119,9 @@ const toList = (urls: string | string[] | undefined) => (Array.isArray(urls) ? u
 /**
  * Os `iceServers` para a sala que vou criar. Nunca falha: sem TURN, com
  * campos faltando ou se der erro, a sala sai só com conexão direta (e o log diz).
+ * `lifetime`: quanto dura a senha temporária, em minutos.
  */
-export async function turnServersForRoom(config: TurnConfig): Promise<RTCIceServer[]> {
+export async function turnServersForRoom(config: TurnConfig, lifetime: number): Promise<RTCIceServer[]> {
   if (config.kind === "none") return [];
   const provider = PROVIDERS[config.kind] as TurnProvider<TurnConfig>;
   if (!provider.isComplete(config)) {
@@ -114,9 +129,10 @@ export async function turnServersForRoom(config: TurnConfig): Promise<RTCIceServ
     return [];
   }
   try {
-    const servers = await provider.resolve(config);
+    const servers = await provider.resolve(config, lifetime * 60);
     const urls = servers.flatMap((s) => toList(s.urls));
-    log.info("room", `Relay server (TURN, ${provider.label}) for this room: ${describeUrls(urls)}`);
+    const expiry = renewsPassword(config.kind) ? ` (password renewed every ${describeMinutes(lifetime)})` : "";
+    log.info("room", `Relay server (TURN, ${provider.label}) for this room: ${describeUrls(urls)}${expiry}`);
     return servers;
   } catch (e) {
     log.warn(
@@ -124,6 +140,85 @@ export async function turnServersForRoom(config: TurnConfig): Promise<RTCIceServ
       `Could not get the relay server (TURN, ${provider.label}) ready: ${describeError(e)}. The room will use direct connections only`,
     );
     return [];
+  }
+}
+
+/** 90 -> "1 h 30 min" (para os logs). */
+export function describeMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return [h ? `${h} h` : "", m ? `${m} min` : ""].filter(Boolean).join(" ") || "0 min";
+}
+
+/**
+ * Quando gerar a senha nova, em ms depois da anterior: uns minutos antes de
+ * ela vencer, para dar tempo de todos trocarem de rota (e de revogar a antiga).
+ */
+export function renewDelay(lifetime: number): number {
+  const margin = Math.min(5, lifetime / 4);
+  return (lifetime - margin) * 60_000;
+}
+
+/** Se a Cloudflare ou a rede falharem, tenta de novo depois deste tempo. */
+const RETRY_MS = 60_000;
+
+/**
+ * Renova a senha temporária do TURN enquanto a sala estiver aberta (só o
+ * anfitrião). `push` manda os servidores novos para a sala.
+ */
+export class TurnRenewal {
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private stopped = false;
+  /** Quando a senha que a sala usa agora vence (ms). */
+  private expiresAt: number;
+
+  constructor(
+    private config: TurnConfig,
+    private lifetime: number,
+    private push: (servers: RTCIceServer[]) => Promise<void>,
+    now = Date.now(),
+  ) {
+    this.expiresAt = now + lifetime * 60_000;
+  }
+
+  /** Começa a contar (só nos tipos com senha temporária). */
+  start() {
+    if (!renewsPassword(this.config.kind) || !isTurnComplete(this.config)) return;
+    this.schedule(renewDelay(this.lifetime));
+  }
+
+  stop() {
+    this.stopped = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+  }
+
+  private schedule(ms: number) {
+    if (this.stopped) return;
+    this.timer = setTimeout(() => void this.renew(), ms);
+  }
+
+  private async renew() {
+    const provider = PROVIDERS[this.config.kind] as TurnProvider<TurnConfig>;
+    try {
+      const servers = await provider.resolve(this.config, this.lifetime * 60);
+      if (this.stopped) return;
+      if (!servers.length) throw new Error("no relay servers came back");
+      await this.push(servers);
+      this.expiresAt = Date.now() + this.lifetime * 60_000;
+      this.schedule(renewDelay(this.lifetime));
+    } catch (e) {
+      if (this.stopped) return;
+      const left = this.expiresAt - Date.now();
+      log.warn(
+        "room",
+        `Could not renew the relay server (TURN, ${provider.label}) password: ${describeError(e)}. ` +
+          (left > 0
+            ? `The current one still works for ${describeMinutes(Math.ceil(left / 60_000))}; trying again in 1 minute`
+            : "The current one has expired; trying again in 1 minute"),
+      );
+      this.schedule(RETRY_MS);
+    }
   }
 }
 

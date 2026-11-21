@@ -6,7 +6,7 @@ import { es } from "./locales/es";
 import { zh } from "./locales/zh";
 import { ko } from "./locales/ko";
 import { ja } from "./locales/ja";
-import { TURN_KINDS, type TurnConfig } from "./turn";
+import { TURN_KINDS, turnLifetime, type TurnConfig } from "./turn";
 
 export const LANGUAGES = [
   { code: "pt", name: "Português" },
@@ -39,6 +39,8 @@ type Prefs = {
   nativeSend: boolean;
   /** Servidor de repasse (TURN) das salas que eu crio (ROADMAP, seção 4.4). */
   turn: TurnConfig;
+  /** Quanto dura a senha temporária do TURN, em minutos (Cloudflare e coturn). */
+  turnLifetime: number;
 };
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
@@ -81,6 +83,7 @@ function load(): Prefs {
     hwAccel: saved.hwAccel ?? true,
     nativeSend: saved.nativeSend ?? false,
     turn: loadTurn(saved.turn),
+    turnLifetime: turnLifetime(saved.turnLifetime),
   };
 }
 
@@ -158,6 +161,14 @@ export const prefs = {
   },
   set turn(v: TurnConfig) {
     state.turn = loadTurn(v);
+    apply();
+  },
+  /** Minutos que a senha temporária do TURN dura; vale a partir da próxima sala. */
+  get turnLifetime(): number {
+    return state.turnLifetime;
+  },
+  set turnLifetime(v: number) {
+    state.turnLifetime = turnLifetime(v);
     apply();
   },
 };
