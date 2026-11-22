@@ -172,7 +172,7 @@
 
   {#if hasToken === false}
     <div class="stack">
-      <button class="btn" onclick={() => openUrl(tokenUrl())}>
+      <button class="btn" onclick={() => openUrl(tokenUrl()).catch((e) => (error = errText(e)))}>
         <Icon name="link" size={15} />
         {t("selfhostCreateToken")}
       </button>
