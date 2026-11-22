@@ -608,8 +608,16 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
   da sala" e "a conexão com o servidor caiu". Testes do `RoomClient` contra a
   lógica de verdade do servidor (`room.server.test.ts`). O "contrato onde a
   sala vive" ficou só do lado de criar (túnel): entrar não precisa dele.
-- [ ] **S4. Administração.** Tela do dono: salas, pessoas, kikar e banir, senha,
-  limites, duração do TURN.
+- [x] **S4. Administração** (feito em novembro de 2026). Em Configurações >
+  Servidor, "Administrar" abre o painel do dono no cartão do servidor
+  (`ServerAdmin.svelte`, `lib/serverAdmin.ts`, pela API do Worker com a chave
+  deste PC): nome, nova senha, limites de qualidade, duração da senha do TURN,
+  quem está na sala (dono marcado; "Ações": remover, ou banir por 1 hora, 1 dia
+  ou 1 semana) e os banidos (desbanir). Na sala, o dono tem o mesmo menu em cada
+  pessoa (botão de ações ou botão direito), pelo `kick` do WebSocket
+  (`RoomClient.kick`); todos veem a coroa no nome do dono. O menu do botão
+  direito virou um componente (`ui/ContextMenu.svelte`), usado também pela
+  barra de servidores.
 - [ ] **S5. Kikar no túnel.** O anfitrião kika pelo app; a senha do TURN
   continua sendo da sala inteira nesse modo.
 - [ ] **S6. Assistir pelo navegador** (seção 5), nos dois modos: no servidor a

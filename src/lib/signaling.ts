@@ -7,7 +7,8 @@ import type { RoomSettings } from "./quality";
 import type { ThumbSignal } from "./thumbs";
 import type { TransportSignal } from "./transport/types";
 
-export type PeerInfo = { id: string; name: string; sharing: boolean; label?: string | null };
+/** `owner`: dono do servidor próprio (o túnel não manda). */
+export type PeerInfo = { id: string; name: string; sharing: boolean; label?: string | null; owner?: boolean };
 
 /** O que uma pessoa manda para outra pela sala. */
 export type SignalData = TransportSignal | ThumbSignal;
@@ -41,6 +42,8 @@ export type ServerMsg =
 type ClientMsg =
   | { type: "join"; name: string; password: string; admin?: string }
   | { type: "ping" }
+  /** Só o dono do servidor próprio; os outros servidores ignoram. */
+  | { type: "kick"; id: string; banMinutes: number }
   | { type: "sharing"; sharing: boolean; label?: string }
   | { type: "signal"; to: string; data: SignalData };
 

@@ -147,7 +147,7 @@ export class RoomClient {
       case "welcome": {
         this.selfId = msg.id;
         this.settings = msg.settings ?? DEFAULT_SETTINGS;
-        this.peers.set(msg.id, { id: msg.id, name: this.name, sharing: false });
+        this.peers.set(msg.id, { id: msg.id, name: this.name, sharing: false, owner: !!msg.owner });
         msg.peers.forEach((p) => this.peers.set(p.id, p));
         this.status = "connected";
         document.addEventListener("visibilitychange", this.onVisibility);
@@ -236,6 +236,15 @@ export class RoomClient {
     } catch (e) {
       log.error("room", `Something broke while handling "${data.kind}" from ${this.nameOf(from)}: ${describeError(e)}`);
     }
+  }
+
+  // ---------- dono do servidor próprio ----------
+
+  /** Tira alguém da sala (com `banMinutes`, não volta por esse tempo). Só vale para o dono. */
+  kick(id: string, banMinutes = 0) {
+    if (!this.server?.owner || id === this.selfId) return;
+    log.info("room", `Removing ${this.nameOf(id)} from the room${banMinutes ? ` (ban for ${banMinutes} min)` : ""}`);
+    this.signaling.send({ type: "kick", id, banMinutes });
   }
 
   // ---------- transmitir ----------

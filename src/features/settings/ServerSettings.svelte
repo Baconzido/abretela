@@ -19,6 +19,7 @@
   } from "../../lib/selfhost";
   import Icon from "../../ui/Icon.svelte";
   import ConfirmModal from "../../ui/ConfirmModal.svelte";
+  import ServerAdmin from "./ServerAdmin.svelte";
 
   let hasToken = $state<boolean | null>(null);
   let accounts = $state<Account[]>([]);
@@ -37,6 +38,8 @@
   /** Servidor com a senha por definir: o formulário aberto e os campos. */
   let fixing = $state<{ server: OwnedServer; name: string; password: string } | null>(null);
   let copied = $state<string | null>(null);
+  /** Servidor com o painel do dono aberto. */
+  let managing = $state<string | null>(null);
 
   const account = $derived(prefs.cloudflareAccount);
   const servers = $derived(prefs.servers);
@@ -305,6 +308,16 @@
           <p class="hint">{t("selfhostOutdated")}</p>
         {/if}
 
+        {#if managing === s.scriptName}
+          <ServerAdmin
+            server={s}
+            onrename={(name) => {
+              saveServer({ ...s, name });
+              refresh(s);
+            }}
+          />
+        {/if}
+
         <div class="row actions">
           {#if isOutdated(info ?? null)}
             <button class="btn small primary" disabled={!!busy || !hasToken} onclick={() => update(s)}>
@@ -312,6 +325,15 @@
               {t("selfhostUpdate")}
             </button>
           {/if}
+          <button
+            class="btn small"
+            class:primary={managing !== s.scriptName}
+            disabled={!info}
+            onclick={() => (managing = managing === s.scriptName ? null : s.scriptName)}
+          >
+            <Icon name="sliders" size={14} />
+            {t("adminManage")}
+          </button>
           <button class="btn small" disabled={!!busy} onclick={() => refresh(s)}>
             <Icon name="refresh" size={14} />
           </button>

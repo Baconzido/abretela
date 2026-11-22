@@ -9,6 +9,13 @@ import { installFakeRtc, settle } from "./testing/fakeRtc";
 import { RoomCore, type Conn, type RoomHost } from "../../server/src/core";
 import { sha256 } from "../../server/src/crypto";
 import type { ConnState } from "../../server/src/protocol";
+import { serverAdmin } from "./serverAdmin";
+import type { OwnedServer } from "./selfhost";
+
+// a chave de administrador vem do Rust (Gerenciador de Credenciais)
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: async (cmd: string) => (cmd === "selfhost_admin_key" ? "chave-do-dono-0123456789abcdef" : null),
+}));
 
 vi.mock("./log", () => ({
   log: { info: () => {}, warn: () => {}, error: () => {} },
@@ -133,7 +140,10 @@ describe("RoomClient no servidor próprio", () => {
     const dono = await join("Breno", "", ADMIN_KEY);
     const ana = await join("Ana");
     await settle();
-    dono["signaling"].send({ type: "kick", id: ana.selfId, banMinutes: 5 } as never);
+    ana.kick(dono.selfId); // quem não é dono não consegue
+    await settle(10);
+    expect(dono.status).toBe("connected");
+    dono.kick(ana.selfId, 5);
     await settle(30);
     expect(ana.kicked).toEqual({ banned: true });
     expect(ana.status).toBe("closed");
@@ -159,5 +169,45 @@ describe("RoomClient no servidor próprio", () => {
     (call![0] as () => void)();
     expect(sockets[0].sent.at(-1)).toEqual({ type: "ping" });
     ana.leave();
+  });
+});
+
+describe("painel do dono (serverAdmin)", () => {
+  const server: OwnedServer = {
+    scriptName: "abretela-teste",
+    accountId: "acc",
+    name: "Sala do Breno",
+    url: "https://abretela-teste.exemplo.workers.dev",
+    turnKeyId: null,
+    turnError: null,
+    configured: true,
+  };
+
+  beforeEach(() => {
+    // o fetch do app chega na mesma lógica do Worker
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit = {}) => {
+      const path = new globalThis.URL(url).pathname;
+      const auth = (init.headers as Record<string, string>)?.Authorization ?? null;
+      const body = init.body ? JSON.parse(String(init.body)) : null;
+      const r = await core.http(init.method ?? "GET", path, auth, body);
+      return new Response(JSON.stringify(r.body), { status: r.status });
+    });
+  });
+
+  it("vê quem está, muda a senha, bane e desbane", async () => {
+    const ana = await join("Ana");
+    let view = await serverAdmin.view(server);
+    expect(view.peers.map((p) => p.name)).toEqual(["Ana"]);
+
+    view = await serverAdmin.configure(server, { password: "nova" });
+    await expect(join("Bia")).rejects.toBeInstanceOf(WrongPasswordError);
+
+    view = await serverAdmin.kick(server, ana.selfId, 60);
+    await settle(10);
+    expect(ana.kicked).toEqual({ banned: true });
+    expect(view.bans).toHaveLength(1);
+
+    view = await serverAdmin.unban(server, view.bans[0].id);
+    expect(view.bans).toHaveLength(0);
   });
 });

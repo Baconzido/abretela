@@ -7,6 +7,7 @@
   import type { ServerEntry } from "../../lib/servers";
   import { t } from "../../lib/prefs.svelte";
   import Icon from "../../ui/Icon.svelte";
+  import ContextMenu, { type MenuItem } from "../../ui/ContextMenu.svelte";
 
   type Props = {
     entries: ServerEntry[];
@@ -20,7 +21,6 @@
   let infos = $state<Record<string, ServerInfo | null | undefined>>({});
   let hover = $state<{ entry: ServerEntry; top: number } | null>(null);
   let menu = $state<{ entry: ServerEntry; x: number; y: number } | null>(null);
-  let copied = $state(false);
 
   /** De quanto em quanto tempo atualiza quem está em cada servidor. */
   const REFRESH_MS = 60_000;
@@ -38,17 +38,7 @@
 
   onMount(() => {
     const timer = setInterval(() => load(entries.map((e) => e.url)), REFRESH_MS);
-    const close = () => (menu = null);
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    window.addEventListener("click", close);
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("blur", close);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("click", close);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("blur", close);
-    };
+    return () => clearInterval(timer);
   });
 
   const nameOf = (e: ServerEntry) => infos[e.url]?.name ?? e.name;
@@ -68,14 +58,17 @@
   function openMenu(e: MouseEvent, entry: ServerEntry) {
     e.preventDefault();
     hover = null;
-    copied = false;
     menu = { entry, x: e.clientX, y: e.clientY };
   }
 
-  async function copyLink(entry: ServerEntry) {
-    await navigator.clipboard.writeText(entry.url).catch(() => {});
-    copied = true;
-    setTimeout(() => (menu = null), 700);
+  function menuItems(entry: ServerEntry): MenuItem[] {
+    return [
+      { label: t("join"), icon: "play", disabled, onclick: () => onjoin(entry) },
+      { label: t("selfhostCopyLink"), icon: "copy", onclick: () => navigator.clipboard.writeText(entry.url).catch(() => {}) },
+      ...(entry.owned
+        ? []
+        : [{ label: t("serverForget"), icon: "x" as const, danger: true, onclick: () => onforget(entry) }]),
+    ];
   }
 </script>
 
@@ -118,30 +111,13 @@
 {/if}
 
 {#if menu}
-  {@const entry = menu.entry}
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="menu" style:left="{menu.x}px" style:top="{menu.y}px" onclick={(ev) => ev.stopPropagation()}>
-    <button
-      {disabled}
-      onclick={() => {
-        menu = null;
-        onjoin(entry);
-      }}><Icon name="play" size={14} /> {t("join")}</button
-    >
-    <button onclick={() => copyLink(entry)}>
-      <Icon name={copied ? "check" : "copy"} size={14} />
-      {copied ? t("copied") : t("selfhostCopyLink")}
-    </button>
-    {#if !entry.owned}
-      <button
-        class="danger"
-        onclick={() => {
-          menu = null;
-          onforget(entry);
-        }}><Icon name="x" size={14} /> {t("serverForget")}</button
-      >
-    {/if}
-  </div>
+  <ContextMenu
+    x={menu.x}
+    y={menu.y}
+    title={nameOf(menu.entry)}
+    items={menuItems(menu.entry)}
+    onclose={() => (menu = null)}
+  />
 {/if}
 
 <style>
@@ -291,41 +267,5 @@
     align-items: center;
     gap: 4px;
     color: var(--sun-text);
-  }
-  .menu {
-    position: fixed;
-    z-index: 30;
-    min-width: 180px;
-    padding: 6px;
-    display: flex;
-    flex-direction: column;
-    border-radius: var(--r-sm);
-    background: var(--surface);
-    border: 1px solid var(--line-strong);
-    box-shadow: var(--shadow-lg);
-    animation: pop-in 0.1s ease-out;
-  }
-  .menu button {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    border: none;
-    border-radius: 6px;
-    background: none;
-    color: var(--text);
-    font: inherit;
-    font-size: 13px;
-    text-align: left;
-    cursor: pointer;
-  }
-  .menu button:hover:not(:disabled) {
-    background: var(--primary-soft);
-  }
-  .menu button.danger {
-    color: var(--danger);
-  }
-  .menu button.danger:hover {
-    background: var(--danger-soft);
   }
 </style>
