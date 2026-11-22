@@ -618,8 +618,15 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
   (`RoomClient.kick`); todos veem a coroa no nome do dono. O menu do botão
   direito virou um componente (`ui/ContextMenu.svelte`), usado também pela
   barra de servidores.
-- [ ] **S5. Kikar no túnel.** O anfitrião kika pelo app; a senha do TURN
-  continua sendo da sala inteira nesse modo.
+- [x] **S5. Kikar no túnel** (feito em novembro de 2026). O servidor da sala do
+  túnel (`room/server.rs`) gera uma chave de anfitrião em cada sala, que o
+  `create_room` devolve só para o app de quem criou (`hostKey`); o app entra com
+  ela (`join` com `admin`) e vira o dono da sala: `owner` no `welcome` e nas
+  pessoas (coroa, "anfitrião"), e o mesmo `kick` do servidor próprio (remover ou
+  banir). O ban é pelo endereço que o cloudflared repassa (`CF-Connecting-IP`) e
+  vale enquanto a sala existir. A senha do TURN continua sendo da sala inteira
+  nesse modo: quem é kikado guarda a dela até vencer. No app, `RoomClient.owner`
+  vale para os dois modos.
 - [ ] **S6. Assistir pelo navegador** (seção 5), nos dois modos: no servidor a
   página sai do Worker; no túnel, do PC do anfitrião (W3).
 - [ ] **S7. Lançar** (0.7.0): CHANGELOG, PR `dev` → `main`, e só então a tag.

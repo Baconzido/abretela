@@ -28,8 +28,10 @@ export class RoomClient {
   version = 0;
   /** Sala de um servidor próprio (ROADMAP, seção 6); `null` na sala do túnel. */
   server: { name: string; owner: boolean; version: number } | null = null;
-  /** O dono do servidor me tirou da sala (e se me baniu). */
+  /** O dono do servidor (ou o anfitrião do túnel) me tirou da sala (e se me baniu). */
   kicked: { banned: boolean } | null = null;
+  /** Posso tirar gente da sala: dono do servidor próprio ou anfitrião do túnel. */
+  owner = false;
 
   private signaling: Signaling;
   private transport: MediaTransport;
@@ -157,6 +159,7 @@ export class RoomClient {
         document.addEventListener("visibilitychange", this.onVisibility);
         const others = msg.peers.map((p) => `"${p.name}"`).join(", ");
         log.info("room", `Joined the room (${others ? `${others} already there` : "nobody else there yet"})`);
+        this.owner = !!msg.owner;
         if (typeof msg.version === "number") {
           this.server = { name: msg.room?.name || "AbreTela", owner: !!msg.owner, version: msg.version };
           log.info("room", `This is a server room ("${this.server.name}")${this.server.owner ? ", and I own it" : ""}`);
@@ -216,7 +219,7 @@ export class RoomClient {
         break;
       case "kicked":
         this.kicked = { banned: !!msg.banned };
-        log.warn("room", `The server owner removed me from the room${msg.banned ? " and banned me for a while" : ""}`);
+        log.warn("room", `I was removed from the room${msg.banned ? " and banned for a while" : ""}`);
         break;
       case "ice-servers": {
         const servers = cleanIceServers(msg.iceServers);
@@ -242,11 +245,11 @@ export class RoomClient {
     }
   }
 
-  // ---------- dono do servidor próprio ----------
+  // ---------- dono do servidor próprio ou anfitrião do túnel ----------
 
   /** Tira alguém da sala (com `banMinutes`, não volta por esse tempo). Só vale para o dono. */
   kick(id: string, banMinutes = 0) {
-    if (!this.server?.owner || id === this.selfId) return;
+    if (!this.owner || id === this.selfId) return;
     log.info("room", `Removing ${this.nameOf(id)} from the room${banMinutes ? ` (ban for ${banMinutes} min)` : ""}`);
     this.signaling.send({ type: "kick", id, banMinutes });
   }

@@ -36,7 +36,18 @@ struct PeerInfo {
     sharing: bool,
     /// Ex.: "720p 60fps"
     label: Option<String>,
+    /// Quem criou a sala (entrou com a chave do anfitrião). Versões antigas ignoram.
+    owner: bool,
 }
+
+/// Endereço banido pelo anfitrião, até quando (só enquanto a sala existir).
+struct Ban {
+    ip: String,
+    until: std::time::Instant,
+}
+
+/// Limite de um ban (uma semana), para um número absurdo não estourar o relógio.
+const MAX_BAN_MINUTES: u64 = 7 * 24 * 60;
 
 /// Limites de qualidade escolhidos por quem criou a sala.
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -51,10 +62,15 @@ pub struct RoomSettings {
 struct Peer {
     info: PeerInfo,
     tx: mpsc::UnboundedSender<Message>,
+    /// De onde veio, pelo túnel (vazio para o anfitrião, que é local).
+    ip: String,
 }
 
 struct Hub {
     peers: Mutex<HashMap<String, Peer>>,
+    /// Chave que só o app de quem criou a sala recebe: entra como anfitrião (kikar).
+    host_key: String,
+    bans: Mutex<Vec<Ban>>,
     next_id: AtomicU64,
     shutdown: watch::Receiver<bool>,
     settings: RoomSettings,
@@ -72,15 +88,38 @@ enum ClientMsg {
         name: String,
         #[serde(default)]
         password: String,
+        /// Chave do anfitrião (só o app de quem criou a sala tem).
+        #[serde(default)]
+        admin: Option<String>,
     },
     Sharing { sharing: bool, label: Option<String> },
     Signal { to: String, data: Value },
+    /// Só o anfitrião: tira alguém da sala (e, com `banMinutes`, não volta por esse tempo).
+    Kick {
+        id: String,
+        #[serde(default, rename = "banMinutes")]
+        ban_minutes: u64,
+    },
 }
 
 pub struct RunningServer {
     pub port: u16,
     pub stop: watch::Sender<bool>,
     pub handle: RoomHandle,
+    /// Para o app de quem criou a sala entrar como anfitrião.
+    pub host_key: String,
+}
+
+fn random_key() -> String {
+    use ring::rand::SecureRandom;
+    let mut buf = [0u8; 24];
+    ring::rand::SystemRandom::new().fill(&mut buf).expect("random numbers");
+    buf.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Compara sem revelar pelo tempo onde a diferença está.
+fn same_key(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Mexe na sala aberta por fora do WebSocket (o app do anfitrião).
@@ -112,8 +151,11 @@ pub async fn start(
     let port = listener.local_addr()?.port();
     let (stop, stop_rx) = watch::channel(false);
 
+    let host_key = random_key();
     let hub = Arc::new(Hub {
         peers: Mutex::new(HashMap::new()),
+        host_key: host_key.clone(),
+        bans: Mutex::new(Vec::new()),
         next_id: AtomicU64::new(1),
         shutdown: stop_rx.clone(),
         settings,
@@ -138,7 +180,7 @@ pub async fn start(
             .await;
     });
 
-    Ok(RunningServer { port, stop, handle })
+    Ok(RunningServer { port, stop, handle, host_key })
 }
 
 async fn invite_handler(headers: HeaderMap, State(hub): State<Arc<Hub>>) -> Html<String> {
@@ -150,8 +192,14 @@ async fn invite_handler(headers: HeaderMap, State(hub): State<Arc<Hub>>) -> Html
     Html(hub.page.render(host, stats))
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(hub): State<Arc<Hub>>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, hub))
+async fn ws_handler(ws: WebSocketUpgrade, headers: HeaderMap, State(hub): State<Arc<Hub>>) -> impl IntoResponse {
+    // pelo túnel, o cloudflared diz de onde a pessoa vem; o anfitrião (local) não tem
+    let ip = headers
+        .get("cf-connecting-ip")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    ws.on_upgrade(move |socket| handle_socket(socket, hub, ip))
 }
 
 fn send(tx: &mpsc::UnboundedSender<Message>, value: Value) {
@@ -165,7 +213,7 @@ fn broadcast(peers: &HashMap<String, Peer>, value: Value) {
     }
 }
 
-async fn handle_socket(socket: WebSocket, hub: Arc<Hub>) {
+async fn handle_socket(socket: WebSocket, hub: Arc<Hub>, ip: String) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
 
@@ -205,11 +253,21 @@ async fn handle_socket(socket: WebSocket, hub: Arc<Hub>) {
         };
 
         match cmsg {
-            ClientMsg::Join { name, password } => {
+            ClientMsg::Join { name, password, admin } => {
                 if my_id.is_some() {
                     continue;
                 }
-                if password.trim() != hub.password {
+                let banned = !ip.is_empty() && {
+                    let mut bans = hub.bans.lock().await;
+                    bans.retain(|b| b.until > std::time::Instant::now());
+                    bans.iter().any(|b| b.ip == ip)
+                };
+                if banned {
+                    send(&tx, json!({ "type": "error", "reason": "banned" }));
+                    break;
+                }
+                let owner = admin.as_deref().is_some_and(|k| same_key(k, &hub.host_key));
+                if !owner && password.trim() != hub.password {
                     // atraso para dificultar tentativa e erro; depois desconecta
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     send(&tx, json!({ "type": "error", "reason": "wrong-password" }));
@@ -220,19 +278,38 @@ async fn handle_socket(socket: WebSocket, hub: Arc<Hub>) {
                 if name.is_empty() {
                     name = format!("Convidado {id}");
                 }
-                let info = PeerInfo { id: id.clone(), name, sharing: false, label: None };
+                let info = PeerInfo { id: id.clone(), name, sharing: false, label: None, owner };
 
                 let mut peers = hub.peers.lock().await;
                 let others: Vec<PeerInfo> = peers.values().map(|p| p.info.clone()).collect();
-                let mut welcome = json!({ "type": "welcome", "id": id, "peers": others, "settings": hub.settings });
+                let mut welcome =
+                    json!({ "type": "welcome", "id": id, "peers": others, "settings": hub.settings, "owner": owner });
                 let ice_servers = hub.ice_servers.lock().unwrap().clone();
                 if ice_servers.as_array().is_some_and(|a| !a.is_empty()) {
                     welcome["iceServers"] = ice_servers;
                 }
                 send(&tx, welcome);
                 broadcast(&peers, json!({ "type": "peer-joined", "peer": info }));
-                peers.insert(id.clone(), Peer { info, tx: tx.clone() });
+                peers.insert(id.clone(), Peer { info, tx: tx.clone(), ip: ip.clone() });
                 my_id = Some(id);
+            }
+            ClientMsg::Kick { id: target, ban_minutes } => {
+                let Some(id) = &my_id else { continue };
+                let mut peers = hub.peers.lock().await;
+                if !peers.get(id).is_some_and(|p| p.info.owner) || target == *id {
+                    continue;
+                }
+                let Some(gone) = peers.remove(&target) else { continue };
+                let ban = ban_minutes.min(MAX_BAN_MINUTES);
+                if ban > 0 && !gone.ip.is_empty() {
+                    let until = std::time::Instant::now() + Duration::from_secs(ban * 60);
+                    hub.bans.lock().await.push(Ban { ip: gone.ip.clone(), until });
+                }
+                send(&gone.tx, json!({ "type": "kicked", "banned": ban > 0 }));
+                let _ = gone.tx.send(Message::Close(None));
+                broadcast(&peers, json!({ "type": "peer-left", "id": target }));
+                let note = if ban > 0 { " (banned)" } else { "" };
+                log_info!("room", "The host removed {:?} from the room{note}", gone.info.name);
             }
             ClientMsg::Sharing { sharing, label } => {
                 let Some(id) = &my_id else { continue };
@@ -259,8 +336,10 @@ async fn handle_socket(socket: WebSocket, hub: Arc<Hub>) {
 
     if let Some(id) = my_id {
         let mut peers = hub.peers.lock().await;
-        peers.remove(&id);
-        broadcast(&peers, json!({ "type": "peer-left", "id": id }));
+        // kikado: já saiu da lista e os outros já foram avisados
+        if peers.remove(&id).is_some() {
+            broadcast(&peers, json!({ "type": "peer-left", "id": id }));
+        }
     }
     drop(tx);
     let _ = writer.await;

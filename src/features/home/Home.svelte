@@ -114,15 +114,17 @@
       const turn = $state.snapshot(prefs.turn);
       const lifetime = prefs.turnLifetime;
       const iceServers = await turnServersForRoom(turn, lifetime);
-      const info = await invoke<{ port: number; url: string; password: string }>("create_room", {
+      const info = await invoke<{ port: number; url: string; password: string; hostKey: string }>("create_room", {
         settings: $state.snapshot(settings),
         password: roomPassword.trim() || null,
         hostName: trimmedName,
         lang: prefs.lang,
         iceServers: iceServers.length ? iceServers : null,
       });
+      // entra com a chave do anfitrião: pode tirar gente da sala
       const client = new RoomClient(`ws://127.0.0.1:${info.port}/ws`, trimmedName, info.password, {
         nativeSend: prefs.nativeSend,
+        admin: info.hostKey,
       });
       try {
         await client.connect();

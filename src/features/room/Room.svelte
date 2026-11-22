@@ -144,7 +144,7 @@
   let peerMenu = $state<{ peer: PeerView; x: number; y: number } | null>(null);
 
   function openPeerMenu(e: MouseEvent, peer: PeerView) {
-    if (!client.server?.owner || peer.isSelf || peer.owner) return;
+    if (!client.owner || peer.isSelf || peer.owner) return;
     e.preventDefault();
     peerMenu = { peer, x: e.clientX, y: e.clientY };
   }
@@ -191,6 +191,7 @@
     return {
       status: client.status,
       server: client.server ? { ...client.server } : null,
+      owner: client.owner,
       kicked: client.kicked,
       sharing: !!client.localStream,
       peers,
@@ -406,7 +407,7 @@
             </span>
             <div class="peer-info">
               <span class="peer-name">
-                {p.name}{#if p.owner}{" "}<span class="owner-crown" title={t("adminOwner")}
+                {p.name}{#if p.owner}{" "}<span class="owner-crown" title={t(snap.server ? "adminOwner" : "roomHost")}
                     ><Icon name="crown" size={12} /></span
                   >{/if}{#if p.isSelf}{" "}<span class="muted">({t("you")})</span>{/if}
               </span>
@@ -424,7 +425,7 @@
                 {p.watching ? t("stopWatching") : p.isSelf ? t("preview") : t("watch")}
               </button>
             {/if}
-            {#if snap.server?.owner && !p.isSelf && !p.owner}
+            {#if snap.owner && !p.isSelf && !p.owner}
               <button
                 class="icon-btn small peer-more"
                 title={t("adminActions")}
