@@ -2,9 +2,12 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { RoomClient } from "../../lib/room";
-  import { WrongPasswordError } from "../../lib/signaling";
+  import { RoomRefusedError, WrongPasswordError, type RefusedReason } from "../../lib/signaling";
   import { parseInvite, roomLabel } from "../../lib/invite";
+  import { forget, remember, sameServer, serverEntries, type ServerEntry } from "../../lib/servers";
+  import { selfhost } from "../../lib/selfhost";
   import PasswordModal from "../../ui/PasswordModal.svelte";
+  import ServerList from "./ServerList.svelte";
   import {
     DEFAULT_SETTINGS,
     FPS_OPTIONS,
@@ -31,8 +34,10 @@
   const SETTINGS_KEY = "abretela.roomSettings";
 
   let code = $state("");
-  /** O link não trouxe a senha: o modal pede (com o erro da última tentativa). */
-  let askPassword = $state<{ error: string | null } | null>(null);
+  /** Para onde estou entrando: pelo link ou pela lista de servidores. */
+  type Target = { room: string; ws: string; password: string | null; owned: ServerEntry["owned"] };
+  /** Faltou a senha (ou estava errada): o modal pede, com o erro da última tentativa. */
+  let askPassword = $state<{ target: Target; error: string | null } | null>(null);
   let roomPassword = $state("");
   let busy = $state<string | null>(null);
   let error = $state<string | null>(null);
@@ -43,6 +48,7 @@
   const trimmedName = $derived(prefs.name);
   // o link do túnel já traz a senha; o do servidor próprio, não (o modal pede)
   const invite = $derived(parseInvite(code));
+  const servers = $derived(serverEntries(prefs.servers, prefs.joinedServers));
 
   // resumo das opções da sala, mostrado só quando fogem do padrão
   const customized = $derived(
@@ -86,8 +92,16 @@
     });
   });
 
+  const REFUSED_TEXT: Record<RefusedReason, Parameters<typeof t>[0]> = {
+    banned: "refusedBanned",
+    "not-configured": "refusedNotConfigured",
+    "too-many-attempts": "refusedTooMany",
+    "room-full": "refusedFull",
+  };
+
   function errText(e: unknown) {
     if (e instanceof WrongPasswordError) return t("wrongPassword");
+    if (e instanceof RoomRefusedError) return t(REFUSED_TEXT[e.reason]);
     if (e instanceof Error && e.message === "connect-failed") return t("connectFailed");
     return String(e instanceof Error ? e.message : e);
   }
@@ -131,32 +145,62 @@
     }
   }
 
-  /** Entra pelo link; sem senha no link (e sem `typed`), abre o modal. */
-  async function joinRoom(typed?: string) {
+  /** Entra pelo link. Sem senha no link, usa a guardada do servidor ou pede no modal. */
+  function joinRoom() {
     error = null;
     if (!invite) {
       error = t("invalidCode");
       return;
     }
-    const password = typed ?? invite.password;
-    if (!password) {
-      askPassword = { error: null };
+    const known = servers.find((e) => sameServer(e.url, invite.room));
+    enter({
+      room: invite.room,
+      ws: invite.ws,
+      password: invite.password ?? known?.password ?? null,
+      owned: known?.owned ?? null,
+    });
+  }
+
+  /** Entra num servidor da lista (com a senha guardada, ou como dono). */
+  function joinServer(entry: ServerEntry) {
+    const url = entry.url.replace(/\/+$/, "");
+    enter({ room: url, ws: `${url.replace(/^http/, "ws")}/ws`, password: entry.password, owned: entry.owned });
+  }
+
+  async function enter(target: Target, typed?: string) {
+    error = null;
+    const password = typed ?? target.password;
+    // o dono entra pela chave de administrador deste PC, sem senha
+    const admin = !typed && target.owned ? await selfhost.adminKey(target.owned).catch(() => null) : null;
+    if (!password && !admin) {
+      askPassword = { target, error: null };
       return;
     }
     askPassword = null;
     busy = t("connecting");
     try {
-      const client = new RoomClient(invite.ws, trimmedName, password, { nativeSend: prefs.nativeSend });
+      const client = new RoomClient(target.ws, trimmedName, password ?? "", {
+        nativeSend: prefs.nativeSend,
+        admin: admin ?? undefined,
+      });
       await client.connect((n) => {
         if (n > 1) busy = t("connectingAttempt", { n });
       });
-      onenter({ client, room: invite.room, password, isHost: false });
+      // servidor próprio de outra pessoa: guarda a senha para entrar direto da próxima vez
+      if (client.server && !target.owned && password) {
+        prefs.joinedServers = remember(prefs.joinedServers, { url: target.room, name: client.server.name, password });
+      }
+      onenter({ client, room: target.room, password: password ?? "", isHost: false });
     } catch (e) {
       busy = null;
-      // senha errada: pede de novo no modal
-      if (e instanceof WrongPasswordError) askPassword = { error: errText(e) };
+      // senha errada (ou a chave de dono não vale mais): pede de novo no modal
+      if (e instanceof WrongPasswordError) askPassword = { target: { ...target, owned: null }, error: errText(e) };
       else error = errText(e);
     }
+  }
+
+  function forgetServer(entry: ServerEntry) {
+    prefs.joinedServers = forget(prefs.joinedServers, entry.url);
   }
 </script>
 
@@ -262,14 +306,19 @@
     {/if}
   </div>
 
+  {#if servers.length && !showOptions}
+    <ServerList entries={servers} disabled={!!busy} onjoin={joinServer} onforget={forgetServer} />
+  {/if}
+
   <Credits />
 </div>
 
-{#if askPassword && invite}
+{#if askPassword}
+  {@const target = askPassword.target}
   <PasswordModal
-    room={roomLabel(invite.room)}
+    room={servers.find((e) => sameServer(e.url, target.room))?.name ?? roomLabel(target.room)}
     error={askPassword.error}
-    onsubmit={(password) => joinRoom(password)}
+    onsubmit={(password) => enter(target, password)}
     oncancel={() => (askPassword = null)}
   />
 {/if}

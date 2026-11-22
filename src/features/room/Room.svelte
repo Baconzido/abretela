@@ -155,6 +155,8 @@
       .filter((x) => !!x);
     return {
       status: client.status,
+      server: client.server ? { ...client.server } : null,
+      kicked: client.kicked,
       sharing: !!client.localStream,
       peers,
       tiles,
@@ -269,7 +271,8 @@
   });
 
   async function copyInvite() {
-    await navigator.clipboard.writeText(makeInvite(roomUrl, password));
+    // servidor próprio: o link vai sem a senha (quem entra digita uma vez)
+    await navigator.clipboard.writeText(client.server ? roomUrl : makeInvite(roomUrl, password));
     copied = true;
     setTimeout(() => (copied = false), 1500);
   }
@@ -290,7 +293,7 @@
 
     <div class="room-pill">
       <span class="pill-label">{t("room")}</span>
-      <code title={roomUrl}>{roomLabel(roomUrl)}</code>
+      <code title={roomUrl}>{snap.server?.name ?? roomLabel(roomUrl)}</code>
       <span class="pill-sep"></span>
       <Icon name="lock" size={14} />
       <code class="pw">{showPassword ? password : "•".repeat(password.length)}</code>
@@ -303,7 +306,12 @@
       </button>
     </div>
 
-    <button class="btn small" class:success={copied} title={t("copyInviteHint")} onclick={copyInvite}>
+    <button
+      class="btn small"
+      class:success={copied}
+      title={t(snap.server ? "copyServerInviteHint" : "copyInviteHint")}
+      onclick={copyInvite}
+    >
       <Icon name={copied ? "check" : "copy"} size={16} />
       {copied ? t("copied") : t("copyInvite")}
     </button>
@@ -468,7 +476,7 @@
               <span class="action-icon mint"><Icon name={copied ? "check" : "link"} size={20} /></span>
               <span class="action-text">
                 <span class="action-title">{copied ? t("copied") : t("emptyInviteTitle")}</span>
-                <span class="action-hint">{t("emptyInviteHint")}</span>
+                <span class="action-hint">{t(snap.server ? "copyServerInviteHint" : "emptyInviteHint")}</span>
               </span>
             </button>
           {/if}
@@ -608,8 +616,16 @@
     <div class="modal-backdrop">
       <div class="modal closed-modal">
         <img class="empty-mascot sad" src="/logo.svg" alt="" />
-        <h2>{t("roomClosed")}</h2>
-        <p class="muted">{t("roomClosedBody")}</p>
+        {#if snap.kicked}
+          <h2>{t("kickedTitle")}</h2>
+          <p class="muted">{t(snap.kicked.banned ? "kickedBannedBody" : "kickedBody")}</p>
+        {:else if snap.server}
+          <h2>{t("serverLostTitle")}</h2>
+          <p class="muted">{t("serverLostBody")}</p>
+        {:else}
+          <h2>{t("roomClosed")}</h2>
+          <p class="muted">{t("roomClosedBody")}</p>
+        {/if}
         <button
           class="btn primary"
           onclick={() => {

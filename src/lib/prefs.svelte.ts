@@ -8,6 +8,7 @@ import { ko } from "./locales/ko";
 import { ja } from "./locales/ja";
 import { TURN_KINDS, turnLifetime, type TurnConfig } from "./turn";
 import { loadServer, type Account, type OwnedServer } from "./selfhost";
+import { loadJoined, type JoinedServer } from "./servers";
 
 export const LANGUAGES = [
   { code: "pt", name: "Português" },
@@ -46,6 +47,8 @@ type Prefs = {
   cloudflareAccount: Account | null;
   /** Os servidores que este PC administra (o token e as chaves ficam no Rust). */
   servers: OwnedServer[];
+  /** Servidores de outras pessoas em que já entrei, com a senha (entra direto). */
+  joinedServers: JoinedServer[];
 };
 
 function loadAccount(v: unknown): Account | null {
@@ -99,6 +102,7 @@ function load(): Prefs {
     turnLifetime: turnLifetime(saved.turnLifetime),
     cloudflareAccount: loadAccount(saved.cloudflareAccount),
     servers: loadServers(saved.servers),
+    joinedServers: loadJoined(saved.joinedServers),
   };
 }
 
@@ -198,6 +202,13 @@ export const prefs = {
   },
   set servers(v: OwnedServer[]) {
     state.servers = loadServers(v);
+    apply();
+  },
+  get joinedServers(): JoinedServer[] {
+    return state.joinedServers;
+  },
+  set joinedServers(v: JoinedServer[]) {
+    state.joinedServers = loadJoined(v);
     apply();
   },
 };

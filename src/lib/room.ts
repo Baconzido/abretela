@@ -26,6 +26,10 @@ export class RoomClient {
   views = new Map<string, RemoteView>();
   status: "connecting" | "connected" | "closed" = "connecting";
   version = 0;
+  /** Sala de um servidor próprio (ROADMAP, seção 6); `null` na sala do túnel. */
+  server: { name: string; owner: boolean; version: number } | null = null;
+  /** O dono do servidor me tirou da sala (e se me baniu). */
+  kicked: { banned: boolean } | null = null;
 
   private signaling: Signaling;
   private transport: MediaTransport;
@@ -51,10 +55,13 @@ export class RoomClient {
     url: string,
     private name: string,
     password: string,
-    /** Envio nativo (experimental): minha tela sai codificada pelo próprio app. */
-    options: { nativeSend?: boolean } = {},
+    /**
+     * `nativeSend`: envio nativo (experimental), minha tela sai codificada pelo
+     * próprio app. `admin`: chave de dono do servidor próprio (entra sem senha).
+     */
+    options: { nativeSend?: boolean; admin?: string } = {},
   ) {
-    this.signaling = new Signaling(url, name, password);
+    this.signaling = new Signaling(url, name, password, options.admin);
     this.signaling.onMessage = (msg) => this.handle(msg);
     this.signaling.onClosed = () => this.onClosed();
     const host: TransportHost = {
@@ -146,6 +153,10 @@ export class RoomClient {
         document.addEventListener("visibilitychange", this.onVisibility);
         const others = msg.peers.map((p) => `"${p.name}"`).join(", ");
         log.info("room", `Joined the room (${others ? `${others} already there` : "nobody else there yet"})`);
+        if (typeof msg.version === "number") {
+          this.server = { name: msg.room?.name || "AbreTela", owner: !!msg.owner, version: msg.version };
+          log.info("room", `This is a server room ("${this.server.name}")${this.server.owner ? ", and I own it" : ""}`);
+        }
         this.iceServers = cleanIceServers(msg.iceServers);
         const relays = relayUrls(this.iceServers);
         log.info(
@@ -189,6 +200,19 @@ export class RoomClient {
       }
       case "signal":
         this.onSignal(msg.from, msg.data);
+        break;
+      case "room":
+        if (this.server && typeof msg.name === "string") this.server.name = msg.name;
+        break;
+      case "settings":
+        if (msg.settings) {
+          this.settings = msg.settings;
+          log.info("room", "The server owner changed the room's quality limits");
+        }
+        break;
+      case "kicked":
+        this.kicked = { banned: !!msg.banned };
+        log.warn("room", `The server owner removed me from the room${msg.banned ? " and banned me for a while" : ""}`);
         break;
       case "ice-servers": {
         const servers = cleanIceServers(msg.iceServers);

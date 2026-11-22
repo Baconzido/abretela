@@ -591,9 +591,22 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
   servidores (pessoas e ao vivo, copiar link, atualizar, apagar com
   confirmação), novo servidor e assumir um servidor montado em outro PC. A
   página do navegador (arquivos estáticos) fica para a S6.
-- [ ] **S3. Lista de servidores e entrar.** O contrato "onde a sala vive" com
-  os dois modos; a tela inicial com os servidores de que a pessoa faz parte,
-  senha digitada uma vez e guardada.
+- [x] **S3. Lista de servidores e entrar** (feito em novembro de 2026). Entrar
+  é o mesmo `RoomClient` nos dois modos: o servidor fala o protocolo do túnel e
+  o link vira `wss://<servidor>/ws`. A tela inicial tem só o campo do link (a
+  senha que faltar vem no `PasswordModal`) e, abaixo, a lista "Seus servidores"
+  (`ServerList.svelte`, `lib/servers.ts`): os que este PC administra (coroa;
+  entra como dono pela chave de administrador, `selfhost_admin_key`) e os em
+  que já entrou (senha guardada em `joinedServers`, tirar da lista), com
+  pessoas e ao vivo pelo `/api/info`. Na sinalização: `ping` a cada 30 s
+  (`PING_MS`; o túnel ignora), recusas do servidor (`banned`,
+  `not-configured`, `too-many-attempts`, `room-full`) viram `RoomRefusedError`
+  e não tentam de novo, `join` com `admin`. O `RoomClient` guarda `server`
+  (nome, dono, versão) e `kicked`, e aplica `settings` e `room` na hora. Na
+  sala: nome do servidor no topo, convite sem a senha, e avisos de "removido
+  da sala" e "a conexão com o servidor caiu". Testes do `RoomClient` contra a
+  lógica de verdade do servidor (`room.server.test.ts`). O "contrato onde a
+  sala vive" ficou só do lado de criar (túnel): entrar não precisa dele.
 - [ ] **S4. Administração.** Tela do dono: salas, pessoas, kikar e banir, senha,
   limites, duração do TURN.
 - [ ] **S5. Kikar no túnel.** O anfitrião kika pelo app; a senha do TURN

@@ -109,4 +109,6 @@ export const selfhost = {
   claim: (accountId: string, scriptName: string) => invoke<OwnedServer>("selfhost_claim", { accountId, scriptName }),
   /** Cria a chave do TURN e põe no servidor; devolve o id da chave. */
   addTurn: (s: OwnedServer) => invoke<string>("selfhost_add_turn", { accountId: s.accountId, scriptName: s.scriptName }),
+  /** A chave de administrador deste PC para o servidor (`null` se não tiver). */
+  adminKey: (s: OwnedServer) => invoke<string | null>("selfhost_admin_key", { scriptName: s.scriptName }),
 };

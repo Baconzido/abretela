@@ -339,6 +339,13 @@ pub async fn selfhost_add_turn(account_id: String, script_name: String) -> Resul
     Ok(key.uid)
 }
 
+/// A chave de administrador deste PC para um servidor: o app entra na sala
+/// como dono com ela (fica no mesmo PC; nunca vai para outra pessoa).
+#[tauri::command]
+pub fn selfhost_admin_key(script_name: String) -> Result<Option<String>, String> {
+    secrets::admin_key(&script_name)
+}
+
 /// Servidores do AbreTela que já existem na conta (montados em outro PC).
 #[tauri::command]
 pub async fn selfhost_find(account_id: String) -> Result<Vec<FoundServer>, String> {
