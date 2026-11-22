@@ -27,6 +27,8 @@ struct Texts {
     title: &'static str,
     description: &'static str,
     open: &'static str,
+    /// Assistir sem o app (a página de assistir, em /watch).
+    watch: &'static str,
     no_app: &'static str,
     download: &'static str,
     person: &'static str,
@@ -41,6 +43,7 @@ fn texts(lang: &str) -> Texts {
             title: "Uma sala no AbreTela",
             description: "Clique para entrar e assistir às telas ao vivo.",
             open: "Abrir no AbreTela",
+            watch: "Assistir no navegador",
             no_app: "Ainda não tem o AbreTela?",
             download: "Baixar para Windows",
             person: "1 pessoa na sala",
@@ -52,6 +55,7 @@ fn texts(lang: &str) -> Texts {
             title: "Una sala en AbreTela",
             description: "Haz clic para entrar y ver las pantallas en vivo.",
             open: "Abrir en AbreTela",
+            watch: "Ver en el navegador",
             no_app: "¿Todavía no tienes AbreTela?",
             download: "Descargar para Windows",
             person: "1 persona en la sala",
@@ -63,6 +67,7 @@ fn texts(lang: &str) -> Texts {
             title: "AbreTela のルーム",
             description: "クリックして参加し、ライブ画面を見よう。",
             open: "AbreTela で開く",
+            watch: "ブラウザで視聴",
             no_app: "AbreTela をまだ持っていませんか？",
             download: "Windows 版をダウンロード",
             person: "ルームに 1 人",
@@ -74,6 +79,7 @@ fn texts(lang: &str) -> Texts {
             title: "AbreTela 방",
             description: "클릭해서 들어가 라이브 화면을 보세요.",
             open: "AbreTela에서 열기",
+            watch: "브라우저로 보기",
             no_app: "아직 AbreTela가 없나요?",
             download: "Windows용 다운로드",
             person: "방에 1명",
@@ -85,6 +91,7 @@ fn texts(lang: &str) -> Texts {
             title: "AbreTela 房间",
             description: "点击加入，观看直播画面。",
             open: "在 AbreTela 中打开",
+            watch: "在浏览器中观看",
             no_app: "还没有 AbreTela？",
             download: "下载 Windows 版",
             person: "房间里有 1 人",
@@ -96,6 +103,7 @@ fn texts(lang: &str) -> Texts {
             title: "A room on AbreTela",
             description: "Click to join and watch the live screens.",
             open: "Open in AbreTela",
+            watch: "Watch in the browser",
             no_app: "Don't have AbreTela yet?",
             download: "Download for Windows",
             person: "1 person in the room",
@@ -167,6 +175,10 @@ impl InvitePage {
     padding: 12px 16px; border-radius: 10px; font-weight: 700; text-decoration: none; }}
   a.primary {{ margin-top: 14px; background: #f26a1f; color: #fff; }}
   a.primary:hover {{ background: #e05d14; }}
+  a.watch {{ border: 1.5px solid #4a3b2f; color: #f8efe6; background: #221a14; }}
+  a.watch:hover {{ background: #2c221a; }}
+  body.mobile a.primary {{ display: none; }}
+  body.mobile a.watch {{ margin-top: 14px; background: #f26a1f; border-color: #f26a1f; color: #fff; }}
   .get {{ width: 100%; margin-top: 22px; padding-top: 20px; border-top: 1px solid #31271f; display: flex; flex-direction: column; gap: 10px; }}
   .get p {{ color: #f8efe6; font-weight: 600; }}
   a.download {{ border: 1.5px solid #f26a1f; color: #ff9c5e; background: #2a1a10; }}
@@ -180,6 +192,7 @@ impl InvitePage {
   <h1>{title}</h1>
   <span class="presence"><i></i>{presence}</span>
   <a class="btn primary" id="open" href="#">{open}</a>
+  <a class="btn watch" id="watch" href="/watch">{watch}</a>
   <div class="get">
     <p>{no_app}</p>
     <a class="btn download" href="{DOWNLOAD_URL}">
@@ -193,13 +206,18 @@ impl InvitePage {
   var path = location.pathname.replace(/\/+$/, "");
   var target = "abretela://join/" + location.host + path + location.hash;
   document.getElementById("open").href = target;
-  location.href = target;
+  // a página de assistir leva a senha junto (depois do #, nunca vai ao servidor)
+  document.getElementById("watch").href = "/watch" + location.hash;
+  // no celular não existe o app: o botão principal vira assistir no navegador
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) document.body.classList.add("mobile");
+  else location.href = target;
 </script>
 </body>
 </html>
 "##,
             description = escape(t.description),
             open = escape(t.open),
+            watch = escape(t.watch),
             no_app = escape(t.no_app),
             download = escape(t.download),
         )
@@ -221,5 +239,13 @@ mod tests {
         assert!(html.contains("Sala de &lt;b&gt;Ana&lt;/b&gt; no AbreTela"));
         assert!(html.contains("https://abc.example.com/logo.png"));
         assert!(!html.contains("<b>Ana</b>"));
+    }
+
+    #[test]
+    fn offers_watching_in_the_browser() {
+        let html = InvitePage { host_name: "Ana".into(), lang: "pt".into() }.render(None, RoomStats::default());
+        assert!(html.contains(r#"<a class="btn watch" id="watch" href="/watch">Assistir no navegador</a>"#));
+        let en = InvitePage { host_name: "Ana".into(), lang: "xx".into() }.render(None, RoomStats::default());
+        assert!(en.contains("Watch in the browser"));
     }
 }

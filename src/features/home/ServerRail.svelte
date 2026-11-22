@@ -22,11 +22,22 @@
   let hover = $state<{ entry: ServerEntry; top: number } | null>(null);
   let menu = $state<{ entry: ServerEntry; x: number; y: number } | null>(null);
 
-  /** De quanto em quanto tempo atualiza quem está em cada servidor. */
+  /**
+   * De quanto em quanto tempo atualiza quem está em cada servidor. Só com a
+   * janela em foco: cada pergunta conta no limite grátis do servidor de alguém.
+   */
   const REFRESH_MS = 60_000;
+  let lastLoad = 0;
 
   function load(urls: string[]) {
     for (const url of urls) serverInfo(url).then((info) => (infos[url] = info));
+  }
+
+  function refreshAll() {
+    if (document.hidden || !document.hasFocus()) return;
+    if (Date.now() - lastLoad < REFRESH_MS - 1000) return;
+    lastLoad = Date.now();
+    load(entries.map((e) => e.url));
   }
 
   // servidores novos na lista: busca na hora
@@ -37,8 +48,14 @@
   });
 
   onMount(() => {
-    const timer = setInterval(() => load(entries.map((e) => e.url)), REFRESH_MS);
-    return () => clearInterval(timer);
+    lastLoad = Date.now();
+    const timer = setInterval(refreshAll, REFRESH_MS);
+    // voltou para o app: atualiza na hora (se já faz um minuto)
+    window.addEventListener("focus", refreshAll);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refreshAll);
+    };
   });
 
   const nameOf = (e: ServerEntry) => infos[e.url]?.name ?? e.name;

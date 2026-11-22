@@ -16,6 +16,8 @@ await build({
   platform: "neutral",
   // o runtime da Cloudflare fornece este módulo
   external: ["cloudflare:workers"],
+  // a página de assistir (dist-web/watch.html) entra como texto
+  loader: { ".html": "text" },
   legalComments: "none",
   logLevel: "warning",
 });

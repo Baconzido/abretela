@@ -7,8 +7,15 @@ import type { RoomSettings } from "./quality";
 import type { ThumbSignal } from "./thumbs";
 import type { TransportSignal } from "./transport/types";
 
-/** `owner`: dono do servidor próprio (o túnel não manda). */
-export type PeerInfo = { id: string; name: string; sharing: boolean; label?: string | null; owner?: boolean };
+/** `owner`: dono da sala; `web`: assiste pelo navegador (versões antigas não mandam). */
+export type PeerInfo = {
+  id: string;
+  name: string;
+  sharing: boolean;
+  label?: string | null;
+  owner?: boolean;
+  web?: boolean;
+};
 
 /** O que uma pessoa manda para outra pela sala. */
 export type SignalData = TransportSignal | ThumbSignal;
@@ -40,7 +47,7 @@ export type ServerMsg =
   | { type: "kicked"; banned?: boolean };
 
 type ClientMsg =
-  | { type: "join"; name: string; password: string; admin?: string }
+  | { type: "join"; name: string; password: string; admin?: string; client?: "web" }
   | { type: "ping" }
   /** Só o dono do servidor próprio; os outros servidores ignoram. */
   | { type: "kick"; id: string; banMinutes: number }
@@ -89,6 +96,8 @@ export class Signaling {
     private password: string,
     /** Chave de administrador: entra como dono do servidor próprio, sem senha. */
     private admin?: string,
+    /** Entrando pela página de assistir do navegador (os outros veem um ícone). */
+    private web = false,
   ) {}
 
   /** Tenta conectar por até ~45s (o DNS de túneis novos pode demorar). */
@@ -132,6 +141,7 @@ export class Signaling {
           name: this.name,
           password: this.password,
           ...(this.admin ? { admin: this.admin } : {}),
+          ...(this.web ? { client: "web" as const } : {}),
         });
       };
       ws.onmessage = (ev) => {

@@ -58,7 +58,14 @@ type Pending = { username: string; at: number };
 
 const KEY = { config: "config", nextId: "nextId", bans: "bans", revoke: "revoke" } as const;
 
-const info = (p: Peer): PeerInfo => ({ id: p.id, name: p.name, sharing: p.sharing, label: p.label, owner: p.owner });
+const info = (p: Peer): PeerInfo => ({
+  id: p.id,
+  name: p.name,
+  sharing: p.sharing,
+  label: p.label,
+  owner: p.owner,
+  web: !!p.web,
+});
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 const clip = (v: unknown, n: number) => str(v).trim().slice(0, n);
@@ -248,6 +255,7 @@ export class RoomCore {
       sharing: false,
       label: null,
       owner,
+      web: msg.client === "web",
       joinedAt: this.host.now(),
     };
     let iceServers: unknown;

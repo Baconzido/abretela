@@ -63,9 +63,9 @@ export class RoomClient {
      * `nativeSend`: envio nativo (experimental), minha tela sai codificada pelo
      * próprio app. `admin`: chave de dono do servidor próprio (entra sem senha).
      */
-    options: { nativeSend?: boolean; admin?: string } = {},
+    options: { nativeSend?: boolean; admin?: string; web?: boolean } = {},
   ) {
-    this.signaling = new Signaling(url, name, password, options.admin);
+    this.signaling = new Signaling(url, name, password, options.admin, options.web);
     this.signaling.onMessage = (msg) => this.handle(msg);
     this.signaling.onClosed = () => this.onClosed();
     globalThis.addEventListener?.("pagehide", this.onPageHide);

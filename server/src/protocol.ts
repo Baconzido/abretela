@@ -5,9 +5,9 @@
 
 /**
  * Muda quando o código do servidor muda: o app compara com o do Worker publicado
- * e oferece "Atualizar servidor". 2: tira da sala as conexões sem ping.
+ * e oferece "Atualizar servidor". 2: tira da sala as conexões sem ping. 3: página de assistir pelo navegador.
  */
-export const SERVER_VERSION = 2;
+export const SERVER_VERSION = 3;
 
 /** Limites de qualidade da sala (mesmos nomes do app e do servidor do túnel). */
 export type RoomSettings = { minHeight: number; maxHeight: number; minFps: number; maxFps: number };
@@ -36,8 +36,8 @@ export const DEFAULT_CONFIG: RoomConfig = {
 /** Os mesmos tempos que o app oferece para o TURN do anfitrião. */
 export const TURN_LIFETIMES = [15, 30, 60, 120, 360, 1440];
 
-/** Uma pessoa como os outros veem (o `PeerInfo` do app, mais `owner`). */
-export type PeerInfo = { id: string; name: string; sharing: boolean; label: string | null; owner: boolean };
+/** Uma pessoa como os outros veem (o `PeerInfo` do app, mais `owner` e `web`). */
+export type PeerInfo = { id: string; name: string; sharing: boolean; label: string | null; owner: boolean; web: boolean };
 
 /** Uma pessoa na sala, guardada no próprio WebSocket (sobrevive à hibernação). */
 export type Peer = PeerInfo & {

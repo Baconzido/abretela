@@ -4,8 +4,8 @@
   "version": "0.6.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/build-server.mjs && vite",
-    "build": "node scripts/build-server.mjs && vite build",
+    "dev": "node scripts/build-web.mjs && node scripts/build-server.mjs && vite",
+    "build": "node scripts/build-web.mjs && node scripts/build-server.mjs && vite build",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json",
     "check": "npx --yes -p typescript@6 -p svelte-check@4.7.8 svelte-check --threshold warning",
     "test": "vitest run",

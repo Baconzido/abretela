@@ -7,10 +7,13 @@
 //   POST /api/admin/room     nome, senha, limites, duração do TURN
 //   POST /api/admin/kick     { id, banMinutes? }
 //   POST /api/admin/unban    { id }
+//   GET  /  (e /watch)       a página de assistir pelo navegador
 //
-// A página de assistir pelo navegador entra depois (fase S6).
+// A página (`npm run build` gera dist-web/watch.html, com tudo dentro) vai
+// embutida no código do Worker: abrir o link custa uma requisição só.
 
 import type { Env } from "./room";
+import WATCH_HTML from "../../dist-web/watch.html";
 
 export { Room } from "./room";
 
@@ -42,9 +45,14 @@ export default {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
       return withCors(await room.fetch(request));
     }
-    if (url.pathname === "/") {
-      return new Response("AbreTela server. Open it in the AbreTela app.", {
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
+    if (url.pathname === "/" || url.pathname === "/watch") {
+      return new Response(WATCH_HTML, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer",
+        },
       });
     }
     return new Response("Not found", { status: 404 });

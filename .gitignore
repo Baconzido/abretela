@@ -8,3 +8,4 @@ server/.dev.vars
 server/.wrangler/
 .wrangler/
 server/dist/
+dist-web/

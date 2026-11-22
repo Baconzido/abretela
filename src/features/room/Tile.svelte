@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { isTauri } from "../../lib/env";
   import type { RemoteView } from "../../lib/transport/types";
   import { t } from "../../lib/prefs.svelte";
   import Icon from "../../ui/Icon.svelte";
@@ -70,7 +71,8 @@
 
   onMount(() => {
     const onChange = () => {
-      if (!document.fullscreenElement) getCurrentWindow().setFullscreen(false);
+      // no app, a janela vai junto com a tela cheia do vídeo; no navegador, não precisa
+      if (!document.fullscreenElement && isTauri()) getCurrentWindow().setFullscreen(false);
     };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
@@ -82,7 +84,7 @@
       await document.exitFullscreen();
     } else {
       await tile.requestFullscreen();
-      await getCurrentWindow().setFullscreen(true);
+      if (isTauri()) await getCurrentWindow().setFullscreen(true);
     }
   }
 

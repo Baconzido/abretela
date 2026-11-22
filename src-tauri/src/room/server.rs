@@ -28,6 +28,9 @@ use tokio::sync::{mpsc, watch, Mutex};
 use super::invite_page::{InvitePage, RoomStats};
 
 const LOGO_PNG: &[u8] = include_bytes!("../../icons/128x128@2x.png");
+/// A página de assistir pelo navegador (ROADMAP, seção 5), com tudo dentro
+/// (`npm run build` gera; a mesma que o servidor próprio serve).
+const WATCH_HTML: &str = include_str!("../../../dist-web/watch.html");
 
 #[derive(Clone, Serialize)]
 struct PeerInfo {
@@ -38,6 +41,8 @@ struct PeerInfo {
     label: Option<String>,
     /// Quem criou a sala (entrou com a chave do anfitrião). Versões antigas ignoram.
     owner: bool,
+    /// Assiste pela página do navegador (`join` com `client: "web"`).
+    web: bool,
 }
 
 /// Endereço banido pelo anfitrião, até quando (só enquanto a sala existir).
@@ -48,6 +53,13 @@ struct Ban {
 
 /// Limite de um ban (uma semana), para um número absurdo não estourar o relógio.
 const MAX_BAN_MINUTES: u64 = 7 * 24 * 60;
+/// Pessoas na sala ao mesmo tempo.
+const MAX_PEERS: usize = 50;
+/// Tamanho máximo de uma mensagem (as prévias das telas vão por aqui).
+const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+/// Senhas erradas por endereço, num minuto, antes de recusar sem nem conferir.
+const MAX_WRONG_PASSWORDS: usize = 5;
+const WRONG_PASSWORD_WINDOW: Duration = Duration::from_secs(60);
 
 /// Limites de qualidade escolhidos por quem criou a sala.
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -71,6 +83,9 @@ struct Hub {
     /// Chave que só o app de quem criou a sala recebe: entra como anfitrião (kikar).
     host_key: String,
     bans: Mutex<Vec<Ban>>,
+    /// Senhas erradas recentes por endereço (quem vem pelo túnel; atrás dele
+    /// tudo chega de 127.0.0.1, então conta pelo `CF-Connecting-IP`).
+    wrong: Mutex<HashMap<String, Vec<std::time::Instant>>>,
     next_id: AtomicU64,
     shutdown: watch::Receiver<bool>,
     settings: RoomSettings,
@@ -91,6 +106,9 @@ enum ClientMsg {
         /// Chave do anfitrião (só o app de quem criou a sala tem).
         #[serde(default)]
         admin: Option<String>,
+        /// "web": entrou pela página de assistir do navegador.
+        #[serde(default)]
+        client: Option<String>,
     },
     Sharing { sharing: bool, label: Option<String> },
     Signal { to: String, data: Value },
@@ -156,6 +174,7 @@ pub async fn start(
         peers: Mutex::new(HashMap::new()),
         host_key: host_key.clone(),
         bans: Mutex::new(Vec::new()),
+        wrong: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
         shutdown: stop_rx.clone(),
         settings,
@@ -167,6 +186,19 @@ pub async fn start(
     let app = Router::new()
         .route("/", get(invite_handler))
         .route("/logo.png", get(|| async { ([(header::CONTENT_TYPE, "image/png")], LOGO_PNG) }))
+        .route(
+            "/watch",
+            get(|| async {
+                (
+                    [
+                        (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                        (header::CACHE_CONTROL, "no-cache"),
+                        (header::REFERRER_POLICY, "no-referrer"),
+                    ],
+                    WATCH_HTML,
+                )
+            }),
+        )
         .route("/ws", get(ws_handler))
         .route("/health", get(|| async { "ok" }))
         .with_state(hub);
@@ -199,7 +231,7 @@ async fn ws_handler(ws: WebSocketUpgrade, headers: HeaderMap, State(hub): State<
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default()
         .to_string();
-    ws.on_upgrade(move |socket| handle_socket(socket, hub, ip))
+    ws.max_message_size(MAX_MESSAGE_BYTES).on_upgrade(move |socket| handle_socket(socket, hub, ip))
 }
 
 fn send(tx: &mpsc::UnboundedSender<Message>, value: Value) {
@@ -253,7 +285,7 @@ async fn handle_socket(socket: WebSocket, hub: Arc<Hub>, ip: String) {
         };
 
         match cmsg {
-            ClientMsg::Join { name, password, admin } => {
+            ClientMsg::Join { name, password, admin, client } => {
                 if my_id.is_some() {
                     continue;
                 }
@@ -267,7 +299,20 @@ async fn handle_socket(socket: WebSocket, hub: Arc<Hub>, ip: String) {
                     break;
                 }
                 let owner = admin.as_deref().is_some_and(|k| same_key(k, &hub.host_key));
+                let too_many = !owner && !ip.is_empty() && {
+                    let mut wrong = hub.wrong.lock().await;
+                    let recent = wrong.entry(ip.clone()).or_default();
+                    recent.retain(|t| t.elapsed() < WRONG_PASSWORD_WINDOW);
+                    recent.len() >= MAX_WRONG_PASSWORDS
+                };
+                if too_many {
+                    send(&tx, json!({ "type": "error", "reason": "too-many-attempts" }));
+                    break;
+                }
                 if !owner && password.trim() != hub.password {
+                    if !ip.is_empty() {
+                        hub.wrong.lock().await.entry(ip.clone()).or_default().push(std::time::Instant::now());
+                    }
                     // atraso para dificultar tentativa e erro; depois desconecta
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     send(&tx, json!({ "type": "error", "reason": "wrong-password" }));
@@ -278,9 +323,14 @@ async fn handle_socket(socket: WebSocket, hub: Arc<Hub>, ip: String) {
                 if name.is_empty() {
                     name = format!("Convidado {id}");
                 }
-                let info = PeerInfo { id: id.clone(), name, sharing: false, label: None, owner };
+                let web = client.as_deref() == Some("web");
+                let info = PeerInfo { id: id.clone(), name, sharing: false, label: None, owner, web };
 
                 let mut peers = hub.peers.lock().await;
+                if peers.len() >= MAX_PEERS {
+                    send(&tx, json!({ "type": "error", "reason": "room-full" }));
+                    break;
+                }
                 let others: Vec<PeerInfo> = peers.values().map(|p| p.info.clone()).collect();
                 let mut welcome =
                     json!({ "type": "welcome", "id": id, "peers": others, "settings": hub.settings, "owner": owner });

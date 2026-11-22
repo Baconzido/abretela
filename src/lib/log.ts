@@ -2,11 +2,16 @@
 // são em inglês e escritos para gente ler, não para máquina.
 
 import { invoke } from "@tauri-apps/api/core";
+import { isTauri } from "./env";
 
 type Level = "info" | "warn" | "error";
 
+// no navegador (página de assistir) não há arquivo de log: vai para o console
+const original = { info: console.info, warn: console.warn, error: console.error };
+
 function send(level: Level, area: string, message: string) {
-  invoke("log", { level, area, message }).catch(() => {});
+  if (isTauri()) invoke("log", { level, area, message }).catch(() => {});
+  else original[level](`[${area}] ${message}`);
 }
 
 export const log = {
@@ -17,7 +22,7 @@ export const log = {
 
 /** Escreve no log as placas de rede do PC (IPs, VPNs, gateway); `why` diz quando. */
 export function logNetwork(why: string) {
-  invoke("log_network", { why }).catch(() => {});
+  if (isTauri()) invoke("log_network", { why }).catch(() => {});
 }
 
 /** Texto legível de um erro qualquer (inclui o nome, ex.: "InvalidAccessError: ..."). */
@@ -45,7 +50,7 @@ export function installGlobalLogging({ describeGpu = true } = {}) {
     send("error", "app", `Unexpected error: ${describeError(ev.reason)}`);
   });
 
-  const original = { error: console.error, warn: console.warn };
+  if (!isTauri()) return; // no navegador, o console já mostra tudo
   console.error = (...args: unknown[]) => {
     original.error(...args);
     send("error", "app", args.map(describeError).join(" "));

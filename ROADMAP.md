@@ -241,13 +241,34 @@ a manda ao servidor), então ninguém precisa digitar.
   `transport/native.ts`. Os imports do `@tauri-apps` carregam no navegador; só
   as chamadas falham, então dá para separar sem reescrever.
 
-**Fases** (cada uma testada antes da próxima, tudo na `dev`):
+**Feito em novembro de 2026**, com estas diferenças do plano abaixo:
+- A página (`watch.html`, `src/web/`) é construída num arquivo só, com JS, CSS e
+  fontes dentro (`scripts/build-web.mjs` gera `dist-web/watch.html`, ~280 KB; só
+  a Nunito latina). O servidor próprio embute esse arquivo no código do Worker e
+  serve em `/` (abrir o link custa uma requisição); o servidor do túnel embute no
+  app e serve em `/watch`. Não precisou do `asset_resolver` nem da API de
+  arquivos estáticos da Cloudflare.
+- A página do convite do túnel ganhou "Assistir no navegador" (`/watch` + a senha
+  do `#`); no celular ela não tenta abrir o app e esse botão vira o principal.
+- `src/lib/env.ts` (`isTauri()`): fora do app o log vai para o console e a tela
+  cheia é só a do vídeo.
+- O `join` manda `client: "web"`; os dois servidores marcam a pessoa (`web`) e o
+  app mostra um ícone de navegador ao lado do nome.
+- Segurança no túnel: 5 senhas erradas por minuto por endereço
+  (`CF-Connecting-IP`), 50 pessoas por sala, mensagens até 1 MiB (o servidor
+  próprio já tinha).
+- Testado no navegador de verdade contra o Worker local (`wrangler dev`): entrar,
+  lista, pedir a tela (o `watch` e o `view` chegam a quem transmite), layout de
+  celular e o aviso de removido. Falta testar com vídeo de verdade, numa sala com
+  alguém transmitindo pelo app.
 
-- [ ] **W1. Núcleo sem Tauri.** `isTauri()` num lugar só; `log.ts` cai no
+**Fases do plano original** (cada uma testada antes da próxima, tudo na `dev`):
+
+- [x] **W1. Núcleo sem Tauri.** `isTauri()` num lugar só; `log.ts` cai no
   console fora do app; tela cheia pelo `document.requestFullscreen` quando não
   é o app. Testes do `RoomClient` rodando como no navegador (sem
   `__TAURI_INTERNALS__`). Nada muda no app.
-- [ ] **W2. Tela de assistir na web.** Segunda entrada do Vite (`watch.html` +
+- [x] **W2. Tela de assistir na web.** Segunda entrada do Vite (`watch.html` +
   `src/web/`), saindo no mesmo `dist/`:
   - pede só o nome (guardado no `localStorage` do navegador), lê a sala da
     própria página (`wss://<host>/ws`) e a senha do `#`;
@@ -262,7 +283,7 @@ a manda ao servidor), então ninguém precisa digitar.
   - nos seis idiomas, pelo idioma do navegador;
   - sem configurações, bandeja, atualizações nem transmitir; um aviso "para
     transmitir a sua tela, baixe o app" com o link.
-- [ ] **W3. Servidor e convite.**
+- [x] **W3. Servidor e convite.**
   - O servidor da sala serve `/watch` e os arquivos do Vite (`/assets/...`)
     direto dos arquivos que o Tauri já embute no executável
     (`app.asset_resolver()`), sem empacotar de novo. No `tauri dev` os
@@ -273,18 +294,18 @@ a manda ao servidor), então ninguém precisa digitar.
     esse botão vira o principal.
   - Cabeçalhos: `Content-Type` certo, cache para `/assets` (os nomes já têm
     hash), nada de cache para `/watch`.
-- [ ] **W4. Segurança.**
+- [x] **W4. Segurança.**
   - Limite de tentativas de senha por pessoa: atrás do túnel tudo chega de
     127.0.0.1, então contar pelo `CF-Connecting-IP` (ex.: 5 erradas por minuto,
     depois espera).
   - Limite de pessoas na sala e de tamanho das mensagens, se ainda não houver.
   - Conferir que a página não expõe nada além do que o app já expõe (só
     arquivos do frontend, sem segredo).
-- [ ] **W5. "No navegador" na lista.** O `join` ganha `client: "web"` (o
+- [x] **W5. "No navegador" na lista.** O `join` ganha `client: "web"` (o
   servidor e as versões antigas ignoram campos que não conhecem); quem usa o
   app vê um ícone de navegador ao lado do nome, e o log diz "watching from a
   browser".
-- [ ] **W6. Testes.** Unidade (rotas, página do convite, limite de senha);
+- [x] **W6. Testes.** Unidade (rotas, página do convite, limite de senha);
   ponta a ponta com o navegador de verdade: sala + `/watch` servidos localmente
   e uma aba assistindo uma transmissão (WebView e nativa), como nos testes do
   envio nativo. Chrome, Edge, Firefox (H.264 pelo OpenH264 que ele baixa) e, se
@@ -627,8 +648,11 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
   vale enquanto a sala existir. A senha do TURN continua sendo da sala inteira
   nesse modo: quem é kikado guarda a dela até vencer. No app, `RoomClient.owner`
   vale para os dois modos.
-- [ ] **S6. Assistir pelo navegador** (seção 5), nos dois modos: no servidor a
-  página sai do Worker; no túnel, do PC do anfitrião (W3).
+- [x] **S6. Assistir pelo navegador** (feito em novembro de 2026; detalhes na
+  seção 5). A página vai num arquivo só (`dist-web/watch.html`), embutido no
+  Worker (servido em `/`) e no app (o túnel serve em `/watch`). A barra de
+  servidores do app passou a perguntar quem está em cada servidor só com a
+  janela em foco (economiza o limite grátis de quem tem o servidor).
 - [ ] **S7. Lançar** (0.7.0): CHANGELOG, PR `dev` → `main`, e só então a tag.
 
 ---

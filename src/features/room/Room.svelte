@@ -138,6 +138,7 @@
     isSelf: boolean;
     watching: boolean;
     owner?: boolean;
+    web?: boolean;
   };
 
   /** Menu de dono sobre alguém da lista (servidor próprio). */
@@ -409,6 +410,8 @@
               <span class="peer-name">
                 {p.name}{#if p.owner}{" "}<span class="owner-crown" title={t(snap.server ? "adminOwner" : "roomHost")}
                     ><Icon name="crown" size={12} /></span
+                  >{/if}{#if p.web}{" "}<span class="web-badge" title={t("webViaBrowser")}
+                    ><Icon name="globe" size={12} /></span
                   >{/if}{#if p.isSelf}{" "}<span class="muted">({t("you")})</span>{/if}
               </span>
               {#if p.sharing && p.label}
@@ -1014,6 +1017,12 @@
 
   .closed-modal .btn {
     margin-top: 8px;
+  }
+
+  .web-badge {
+    color: var(--muted);
+    display: inline-flex;
+    vertical-align: -1px;
   }
 
   .owner-crown {

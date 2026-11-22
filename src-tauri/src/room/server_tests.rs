@@ -100,12 +100,12 @@ async fn right_password_gets_welcome_with_people_and_settings() {
 
     let (_bia_ws, bia, welcome) = join(&srv, "Bia").await;
     assert_ne!(ana, bia);
-    assert_eq!(welcome["peers"], json!([{ "id": ana, "name": "Ana", "sharing": false, "label": null, "owner": false }]));
+    assert_eq!(welcome["peers"], json!([{ "id": ana, "name": "Ana", "sharing": false, "label": null, "owner": false, "web": false }]));
 
     // quem já estava fica sabendo
     assert_eq!(
         recv(&mut ws).await,
-        json!({ "type": "peer-joined", "peer": { "id": bia, "name": "Bia", "sharing": false, "label": null, "owner": false } })
+        json!({ "type": "peer-joined", "peer": { "id": bia, "name": "Bia", "sharing": false, "label": null, "owner": false, "web": false } })
     );
 }
 
@@ -300,4 +300,35 @@ async fn kick_without_ban_lets_the_person_back() {
     assert_eq!(recv(&mut bia).await, json!({ "type": "kicked", "banned": false }));
     let (_ws, back) = join_from(&srv, "Bia", "203.0.113.7").await;
     assert_eq!(back["type"], "welcome");
+}
+
+#[tokio::test]
+async fn too_many_wrong_passwords_from_the_same_address_are_refused() {
+    let srv = start_room().await;
+    for _ in 0..5 {
+        let mut request = format!("ws://127.0.0.1:{}/ws", srv.port).into_client_request().unwrap();
+        request.headers_mut().insert("CF-Connecting-IP", "203.0.113.9".parse().unwrap());
+        let (mut ws, _) = connect_async(request).await.unwrap();
+        send(&mut ws, json!({ "type": "join", "name": "X", "password": "000000" })).await;
+        assert_eq!(recv(&mut ws).await, json!({ "type": "error", "reason": "wrong-password" }));
+    }
+    // nem a senha certa entra, do mesmo endereço; de outro, entra
+    let (_ws, refused) = join_from(&srv, "X", "203.0.113.9").await;
+    assert_eq!(refused, json!({ "type": "error", "reason": "too-many-attempts" }));
+    let (_ws, ok) = join_from(&srv, "Y", "203.0.113.10").await;
+    assert_eq!(ok["type"], "welcome");
+}
+
+#[tokio::test]
+async fn browser_viewers_are_marked_and_the_watch_page_is_served() {
+    let srv = start_room().await;
+    let (mut ana, _, _) = join(&srv, "Ana").await;
+    let mut ws = connect(&srv).await;
+    send(&mut ws, json!({ "type": "join", "name": "Bia", "password": PASSWORD, "client": "web" })).await;
+    assert_eq!(recv(&mut ws).await["type"], "welcome");
+    assert_eq!(recv(&mut ana).await["peer"]["web"], true);
+
+    let page = http_get(&srv, "/watch").await;
+    assert!(page.contains("text/html"), "{}", &page[..200.min(page.len())]);
+    assert!(page.contains("<div id=\"root\">"));
 }

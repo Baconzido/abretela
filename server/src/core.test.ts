@@ -117,12 +117,12 @@ describe("entrar", () => {
     const bia = await room.join("  Bia  ");
     expect(bia.last("welcome")).toMatchObject({
       id: "2",
-      peers: [{ id: "1", name: "Ana", sharing: false, label: null, owner: false }],
+      peers: [{ id: "1", name: "Ana", sharing: false, label: null, owner: false, web: false }],
       settings: { minHeight: 360, maxHeight: 1080, minFps: 15, maxFps: 60 },
     });
     expect(ana.last("peer-joined")).toEqual({
       type: "peer-joined",
-      peer: { id: "2", name: "Bia", sharing: false, label: null, owner: false },
+      peer: { id: "2", name: "Bia", sharing: false, label: null, owner: false, web: false },
     });
   });
 
@@ -155,6 +155,12 @@ describe("entrar", () => {
     const falso = room.open("198.51.100.9");
     await room.say(falso, { type: "join", name: "Falso", admin: "chave-errada-0123456789" });
     expect(falso.sent).toEqual([{ type: "error", reason: "wrong-password" }]);
+  });
+
+  it("quem entra pelo navegador aparece marcado", async () => {
+    const ana = await room.join("Ana");
+    await room.say(room.open("198.51.100.4"), { type: "join", name: "Bia", password: "1234", client: "web" });
+    expect(ana.last("peer-joined")).toMatchObject({ peer: { name: "Bia", web: true } });
   });
 
   it("nome vazio vira 'Convidado N' e nome longo é cortado", async () => {
