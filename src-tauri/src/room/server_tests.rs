@@ -8,7 +8,11 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{client::IntoClientRequest, Message},
+    MaybeTlsStream, WebSocketStream,
+};
 
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -96,12 +100,12 @@ async fn right_password_gets_welcome_with_people_and_settings() {
 
     let (_bia_ws, bia, welcome) = join(&srv, "Bia").await;
     assert_ne!(ana, bia);
-    assert_eq!(welcome["peers"], json!([{ "id": ana, "name": "Ana", "sharing": false, "label": null }]));
+    assert_eq!(welcome["peers"], json!([{ "id": ana, "name": "Ana", "sharing": false, "label": null, "owner": false, "web": false }]));
 
     // quem já estava fica sabendo
     assert_eq!(
         recv(&mut ws).await,
-        json!({ "type": "peer-joined", "peer": { "id": bia, "name": "Bia", "sharing": false, "label": null } })
+        json!({ "type": "peer-joined", "peer": { "id": bia, "name": "Bia", "sharing": false, "label": null, "owner": false, "web": false } })
     );
 }
 
@@ -237,4 +241,94 @@ async fn serves_health_and_logo() {
     assert!(health.starts_with("HTTP/1.1 200") && health.ends_with("ok"), "{health}");
     let logo = http_get(&srv, "/logo.png").await;
     assert!(logo.to_lowercase().contains("content-type: image/png"), "{logo}");
+}
+
+/// Entra como se viesse pelo túnel, de um endereço (o cloudflared manda o `CF-Connecting-IP`).
+async fn join_from(srv: &RunningServer, name: &str, ip: &str) -> (Ws, Value) {
+    let mut request = format!("ws://127.0.0.1:{}/ws", srv.port).into_client_request().unwrap();
+    request.headers_mut().insert("CF-Connecting-IP", ip.parse().unwrap());
+    let (mut ws, _) = connect_async(request).await.unwrap();
+    send(&mut ws, json!({ "type": "join", "name": name, "password": PASSWORD })).await;
+    let first = recv(&mut ws).await;
+    (ws, first)
+}
+
+#[tokio::test]
+async fn the_host_key_makes_the_host_and_only_it_kicks() {
+    let srv = start_room().await;
+    // o anfitrião entra com a chave (e nem precisa da senha)
+    let mut host = connect(&srv).await;
+    send(&mut host, json!({ "type": "join", "name": "Ana", "admin": srv.host_key })).await;
+    let welcome = recv(&mut host).await;
+    assert_eq!(welcome["owner"], true);
+    let host_id = welcome["id"].as_str().unwrap().to_string();
+
+    let (mut bia, w) = join_from(&srv, "Bia", "203.0.113.5").await;
+    assert_eq!(w["owner"], false);
+    assert_eq!(w["peers"][0]["owner"], true);
+    let bia_id = w["id"].as_str().unwrap().to_string();
+    assert_eq!(recv(&mut host).await["type"], "peer-joined");
+
+    // chave errada não vira anfitrião (e sem senha nem entra)
+    let mut fake = connect(&srv).await;
+    send(&mut fake, json!({ "type": "join", "name": "X", "admin": "chave-errada" })).await;
+    assert_eq!(recv(&mut fake).await, json!({ "type": "error", "reason": "wrong-password" }));
+
+    // quem não é anfitrião não kika
+    send(&mut bia, json!({ "type": "kick", "id": host_id })).await;
+    send(&mut host, json!({ "type": "kick", "id": bia_id, "banMinutes": 10 })).await;
+    assert_eq!(recv(&mut bia).await, json!({ "type": "kicked", "banned": true }));
+    assert_eq!(next(&mut bia).await, None);
+    assert_eq!(recv(&mut host).await, json!({ "type": "peer-left", "id": bia_id }));
+
+    // banida: o mesmo endereço não volta; outro endereço entra
+    let (_ws, refused) = join_from(&srv, "Bia", "203.0.113.5").await;
+    assert_eq!(refused, json!({ "type": "error", "reason": "banned" }));
+    let (_ws, ok) = join_from(&srv, "Caio", "198.51.100.9").await;
+    assert_eq!(ok["type"], "welcome");
+}
+
+#[tokio::test]
+async fn kick_without_ban_lets_the_person_back() {
+    let srv = start_room().await;
+    let mut host = connect(&srv).await;
+    send(&mut host, json!({ "type": "join", "name": "Ana", "admin": srv.host_key })).await;
+    recv(&mut host).await;
+    let (mut bia, w) = join_from(&srv, "Bia", "203.0.113.7").await;
+    let bia_id = w["id"].as_str().unwrap().to_string();
+    send(&mut host, json!({ "type": "kick", "id": bia_id })).await;
+    assert_eq!(recv(&mut bia).await, json!({ "type": "kicked", "banned": false }));
+    let (_ws, back) = join_from(&srv, "Bia", "203.0.113.7").await;
+    assert_eq!(back["type"], "welcome");
+}
+
+#[tokio::test]
+async fn too_many_wrong_passwords_from_the_same_address_are_refused() {
+    let srv = start_room().await;
+    for _ in 0..5 {
+        let mut request = format!("ws://127.0.0.1:{}/ws", srv.port).into_client_request().unwrap();
+        request.headers_mut().insert("CF-Connecting-IP", "203.0.113.9".parse().unwrap());
+        let (mut ws, _) = connect_async(request).await.unwrap();
+        send(&mut ws, json!({ "type": "join", "name": "X", "password": "000000" })).await;
+        assert_eq!(recv(&mut ws).await, json!({ "type": "error", "reason": "wrong-password" }));
+    }
+    // nem a senha certa entra, do mesmo endereço; de outro, entra
+    let (_ws, refused) = join_from(&srv, "X", "203.0.113.9").await;
+    assert_eq!(refused, json!({ "type": "error", "reason": "too-many-attempts" }));
+    let (_ws, ok) = join_from(&srv, "Y", "203.0.113.10").await;
+    assert_eq!(ok["type"], "welcome");
+}
+
+#[tokio::test]
+async fn browser_viewers_are_marked_and_the_watch_page_is_served() {
+    let srv = start_room().await;
+    let (mut ana, _, _) = join(&srv, "Ana").await;
+    let mut ws = connect(&srv).await;
+    send(&mut ws, json!({ "type": "join", "name": "Bia", "password": PASSWORD, "client": "web" })).await;
+    assert_eq!(recv(&mut ws).await["type"], "welcome");
+    assert_eq!(recv(&mut ana).await["peer"]["web"], true);
+
+    let page = http_get(&srv, "/watch").await;
+    assert!(page.contains("text/html"), "{}", &page[..200.min(page.len())]);
+    assert!(page.contains("<div id=\"root\">"));
 }

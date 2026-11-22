@@ -241,13 +241,34 @@ a manda ao servidor), então ninguém precisa digitar.
   `transport/native.ts`. Os imports do `@tauri-apps` carregam no navegador; só
   as chamadas falham, então dá para separar sem reescrever.
 
-**Fases** (cada uma testada antes da próxima, tudo na `dev`):
+**Feito em novembro de 2026**, com estas diferenças do plano abaixo:
+- A página (`watch.html`, `src/web/`) é construída num arquivo só, com JS, CSS e
+  fontes dentro (`scripts/build-web.mjs` gera `dist-web/watch.html`, ~280 KB; só
+  a Nunito latina). O servidor próprio embute esse arquivo no código do Worker e
+  serve em `/` (abrir o link custa uma requisição); o servidor do túnel embute no
+  app e serve em `/watch`. Não precisou do `asset_resolver` nem da API de
+  arquivos estáticos da Cloudflare.
+- A página do convite do túnel ganhou "Assistir no navegador" (`/watch` + a senha
+  do `#`); no celular ela não tenta abrir o app e esse botão vira o principal.
+- `src/lib/env.ts` (`isTauri()`): fora do app o log vai para o console e a tela
+  cheia é só a do vídeo.
+- O `join` manda `client: "web"`; os dois servidores marcam a pessoa (`web`) e o
+  app mostra um ícone de navegador ao lado do nome.
+- Segurança no túnel: 5 senhas erradas por minuto por endereço
+  (`CF-Connecting-IP`), 50 pessoas por sala, mensagens até 1 MiB (o servidor
+  próprio já tinha).
+- Testado no navegador de verdade contra o Worker local (`wrangler dev`): entrar,
+  lista, pedir a tela (o `watch` e o `view` chegam a quem transmite), layout de
+  celular e o aviso de removido. Falta testar com vídeo de verdade, numa sala com
+  alguém transmitindo pelo app.
 
-- [ ] **W1. Núcleo sem Tauri.** `isTauri()` num lugar só; `log.ts` cai no
+**Fases do plano original** (cada uma testada antes da próxima, tudo na `dev`):
+
+- [x] **W1. Núcleo sem Tauri.** `isTauri()` num lugar só; `log.ts` cai no
   console fora do app; tela cheia pelo `document.requestFullscreen` quando não
   é o app. Testes do `RoomClient` rodando como no navegador (sem
   `__TAURI_INTERNALS__`). Nada muda no app.
-- [ ] **W2. Tela de assistir na web.** Segunda entrada do Vite (`watch.html` +
+- [x] **W2. Tela de assistir na web.** Segunda entrada do Vite (`watch.html` +
   `src/web/`), saindo no mesmo `dist/`:
   - pede só o nome (guardado no `localStorage` do navegador), lê a sala da
     própria página (`wss://<host>/ws`) e a senha do `#`;
@@ -262,7 +283,7 @@ a manda ao servidor), então ninguém precisa digitar.
   - nos seis idiomas, pelo idioma do navegador;
   - sem configurações, bandeja, atualizações nem transmitir; um aviso "para
     transmitir a sua tela, baixe o app" com o link.
-- [ ] **W3. Servidor e convite.**
+- [x] **W3. Servidor e convite.**
   - O servidor da sala serve `/watch` e os arquivos do Vite (`/assets/...`)
     direto dos arquivos que o Tauri já embute no executável
     (`app.asset_resolver()`), sem empacotar de novo. No `tauri dev` os
@@ -273,23 +294,24 @@ a manda ao servidor), então ninguém precisa digitar.
     esse botão vira o principal.
   - Cabeçalhos: `Content-Type` certo, cache para `/assets` (os nomes já têm
     hash), nada de cache para `/watch`.
-- [ ] **W4. Segurança.**
+- [x] **W4. Segurança.**
   - Limite de tentativas de senha por pessoa: atrás do túnel tudo chega de
     127.0.0.1, então contar pelo `CF-Connecting-IP` (ex.: 5 erradas por minuto,
     depois espera).
   - Limite de pessoas na sala e de tamanho das mensagens, se ainda não houver.
   - Conferir que a página não expõe nada além do que o app já expõe (só
     arquivos do frontend, sem segredo).
-- [ ] **W5. "No navegador" na lista.** O `join` ganha `client: "web"` (o
+- [x] **W5. "No navegador" na lista.** O `join` ganha `client: "web"` (o
   servidor e as versões antigas ignoram campos que não conhecem); quem usa o
   app vê um ícone de navegador ao lado do nome, e o log diz "watching from a
   browser".
-- [ ] **W6. Testes.** Unidade (rotas, página do convite, limite de senha);
+- [x] **W6. Testes.** Unidade (rotas, página do convite, limite de senha);
   ponta a ponta com o navegador de verdade: sala + `/watch` servidos localmente
   e uma aba assistindo uma transmissão (WebView e nativa), como nos testes do
   envio nativo. Chrome, Edge, Firefox (H.264 pelo OpenH264 que ele baixa) e, se
   der, Safari/iPhone e Android.
-- [ ] **W7. Lançar** (0.6.0): CHANGELOG, PR `dev` → `main`, e só então a tag.
+- [ ] **W7. Lançar:** junto com a seção 6 (fase S6, versão 0.7.0). No servidor
+  próprio a página sai do Worker (arquivos estáticos), e não do PC do anfitrião.
 
 **Limites (ficam como estão):**
 - Só assistir. Transmitir pelo navegador daria (`getDisplayMedia`), mas pior
@@ -399,6 +421,10 @@ em Configurações; os espectadores não configuram nada.
 
 ### 4.5 Passar a sala para outra pessoa
 
+> **Novembro de 2026:** fica para depois. Com o servidor próprio (seção 6) a
+> sala não depende de anfitrião, então quem precisa que a sala continue usa ele.
+> Este plano vale só para o modo túnel, se um dia fizer falta.
+
 Ao sair, o anfitrião escolhe quem vira o novo anfitrião, e a sala continua.
 
 - Dá para fazer porque o vídeo não passa pelo servidor da sala: as conexões
@@ -424,6 +450,249 @@ Ao sair, o anfitrião escolhe quem vira o novo anfitrião, e a sala continua.
   já tinha (só credenciais temporárias ou as que já eram públicas na sala).
 - Fora do escopo por enquanto: o anfitrião cair sem passar a sala (aí a sala
   acaba, como hoje).
+
+---
+
+## 6. Servidor próprio (decidido em novembro de 2026)
+
+**Por quê:** um servidor de salas do próprio app (um Worker na conta do dono
+do projeto) resolveria passar o anfitrião, o link fixo e a página do navegador,
+mas a conta seria de quem mantém o app, e cresce com o app. Em vez disso, **cada
+pessoa pode ter o próprio servidor, na própria conta da Cloudflare**, montado e
+administrado só pelo app. Quem não quiser continua com o túnel, como hoje.
+
+### Os dois modos de sala
+
+| | Túnel (padrão, como hoje) | Servidor próprio |
+|---|---|---|
+| Onde a sala vive | no PC do anfitrião, pelo túnel | num Worker da conta do dono |
+| Anfitrião | quem criou; se sai, a sala acaba | não existe: a sala fica de pé sozinha |
+| Link | muda a cada sala | fixo, por sala |
+| TURN | o do anfitrião (seção 4.4), senha da sala toda | embutido no servidor, senha por pessoa |
+| Kikar | o anfitrião, pelo app | o dono, pelo app; revoga o TURN da pessoa |
+| Navegador | a página sai do PC do anfitrião | a página sai do Worker |
+| Custo | nenhum | o da conta do dono (plano grátis, abaixo) |
+
+Os dois ficam atrás do mesmo contrato no app (onde a sala vive), como o túnel já
+está hoje (`tunnel::Tunnel`), e falam o mesmo protocolo de sala (`join`,
+`welcome`, `peer-*`, `signal`, `ice-servers`), mais o que for de administração.
+
+### Servidor = uma sala, e a lista de servidores no app
+
+- **Cada servidor é uma sala só**, a mesma tela de hoje (quem está, quem está ao
+  vivo, assistir). Não há canais dentro do servidor.
+- **Tela inicial com a barra de servidores do Discord:** ícones à esquerda
+  (iniciais do nome), um clique para entrar; passar o mouse mostra o nome e
+  quantas pessoas e quantas ao vivo; selo vermelho com quantos ao vivo e coroa
+  nos que a pessoa administra; botão direito para copiar o link ou tirar da
+  lista. Cabe uma lista grande (rola). No meio, as ações de hoje: criar uma
+  sala pelo túnel e entrar por um link.
+- **Senha:** o link do servidor não leva a senha (no túnel continua levando), e
+  o app **pede a senha toda vez** (decidido em novembro de 2026, por
+  segurança): a lista guarda só o endereço e o nome. O dono entra pela chave de
+  administrador, sem senha.
+- **Quem é o dono:** a chave de administrador (abaixo), nunca o nome, o IP ou a
+  conta da Cloudflare. O app do dono manda a chave ao conectar; o Worker compara
+  com o hash que guarda e marca aquela conexão como dona. Depois: chaves de
+  moderador, com menos poderes.
+
+### Montar o servidor pelo app, sem abrir a Cloudflare
+
+O dono cola **um token da API da Cloudflare** em Configurações e o app faz o
+resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
+
+- **Criar o token:** o app abre o painel já com o formulário preenchido
+  (`dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=...&name=AbreTela`).
+  Permissões: Workers Scripts (editar), Account Settings (ler) e Realtime
+  (editar, para a chave do TURN). O link preenche `workers_scripts` e
+  `account_settings`; para o Realtime não há chave curta documentada, então a
+  tela explica como marcar essa permissão. Conferir os nomes ao implementar.
+- **O que o app faz com o token** (API REST da Cloudflare, sem wrangler):
+  1. `GET /accounts`: acha a conta (se houver mais de uma, pergunta qual).
+  2. `GET /accounts/{id}/workers/subdomain`: o `<conta>.workers.dev`; se não
+     existir, cria.
+  3. `POST /accounts/{id}/calls/turn_keys`: cria a chave do TURN. A resposta traz
+     `uid` (o Key ID) e `secret` (o token), e o `secret` só aparece nessa hora.
+  4. Sobe os arquivos da página do navegador (`assets-upload-session`, depois
+     `workers/assets/upload`, que devolve o token de conclusão).
+  5. `PUT /accounts/{id}/workers/scripts/abretela`: o código do servidor
+     (multipart, `main_module`, `compatibility_date`), a classe da sala como
+     Durable Object com SQLite (`new_sqlite_classes`; o plano grátis só aceita
+     SQLite), os segredos (`secret_text`: chave do TURN e o hash da chave de
+     administrador) e os arquivos do passo 4.
+  6. `POST .../scripts/abretela/subdomain`: liga o endereço `workers.dev`.
+- O código do servidor vai dentro do app, já empacotado (esbuild no build). Cada
+  versão do app sabe a versão do servidor que espera; se a do Worker for mais
+  velha, o app oferece atualizar (passo 5 de novo).
+
+### Onde fica cada segredo
+
+- **Token da Cloudflare:** só no PC do dono, no Gerenciador de Credenciais do
+  Windows (não no `localStorage`). Nunca vai para o Worker nem para a sala.
+- **Chave do TURN:** só no Worker, como segredo. Nem o app guarda.
+- **Chave de administrador:** o app gera ao montar o servidor e guarda no
+  Gerenciador de Credenciais; o Worker guarda só o hash. É com ela que o app do
+  dono se identifica para administrar.
+- **Outro PC do dono:** cola o token de novo; o app acha o servidor que já
+  existe e troca a chave de administrador (`PUT .../secrets`).
+
+### O que o dono faz pelo app
+
+- Criar mais de um servidor se quiser (cada um é um Worker e uma sala);
+  renomear; mudar senha e limites de qualidade; copiar o link.
+- Ver quem está em cada sala, kikar e banir (por sessão; o banido não volta com
+  o mesmo link enquanto o ban durar).
+- Escolher quanto dura a senha do TURN (como na seção 4.4).
+- Atualizar o servidor quando o app pedir.
+- **Apagar o servidor:** `DELETE .../workers/scripts/abretela?force=true` (apaga
+  as salas e os dados delas) e `DELETE .../calls/turn_keys/{uid}`. Pede
+  confirmação, porque não tem volta.
+
+### Como o servidor funciona
+
+- Um Worker que recebe as conexões e um Durable Object com a sala. Ela guarda
+  no SQLite o nome, o hash da senha, os limites e os banidos; quem está
+  conectado fica só na memória.
+- **Hibernação obrigatória** (API de hibernação de WebSocket): sala parada não
+  gasta tempo. O app manda um `ping` de texto e o Worker responde pela resposta
+  automática (`setWebSocketAutoResponse`), que não acorda a sala. O servidor
+  não manda pings, ao contrário do servidor do túnel.
+- **TURN por pessoa:** quem entra com a senha certa recebe uma credencial só
+  dela; um alarme do Durable Object manda outra antes de vencer
+  (`ice-servers`); ao sair ou ser kikada, a dela é revogada. O resto da troca
+  (ICE restart na mesma conexão) é o que já existe para a seção 4.4.
+- **Link:** `https://<nome>.<conta>.workers.dev`, sem senha. As versões antigas
+  esperam a senha no link, então o servidor fica só para a versão nova em
+  diante.
+- **Contra abuso:** só o dono cria salas; limite de tentativas de senha por
+  `CF-Connecting-IP`; limite de pessoas por sala e de tamanho de mensagem.
+
+### Plano grátis da Cloudflare (páginas de 13 a 19/11/2026)
+
+- Workers: 100 mil requisições por dia; 10 ms de processador por requisição.
+- Durable Objects (só com SQLite): 100 mil requisições por dia e 13.000 GB-s de
+  tempo por dia (~28 h de uma sala acordada). Abrir um WebSocket conta 1
+  requisição; mensagens recebidas contam 20 por 1; enviadas e pings não contam.
+- SQLite: 5 milhões de linhas lidas e 100 mil gravadas por dia; 5 GB no total.
+- Arquivos estáticos (a página do navegador): grátis e sem limite.
+- **Passou do limite, para de funcionar até zerar, às 00:00 UTC (21:00 em
+  Brasília).** Não cobra. O app precisa dizer isso claramente quando acontecer e
+  sugerir o túnel até lá.
+- O que pode gerar conta é o TURN (1.000 GB por mês grátis, depois cobra por
+  uso). Para um grupo de amigos, o resto sobra com folga.
+
+### Fases (cada uma testada antes da próxima, tudo na `dev`)
+
+- [x] **S1. Servidor** (feito em novembro de 2026). Pasta `server/`: o Worker
+  (`index.ts`), a sala como Durable Object (`room.ts`) e a lógica sem nada da
+  Cloudflare (`core.ts`, testada no Node com WebSockets, banco, relógio e TURN
+  falsos). Mesmo protocolo do túnel, mais: `welcome` com `owner`, `room` e
+  `version`; `kick` (só o dono); `kicked`, `room` e `settings` do servidor
+  para a sala; erros `not-configured`, `banned`, `too-many-attempts` e
+  `room-full`. Administração por HTTP com a chave (`/api/admin/room`, `kick`,
+  `unban`) e `/api/info` público. Ban pelo hash do endereço, por tempo. Senha
+  da sala com PBKDF2. Teste de ponta a ponta com o `wrangler dev`:
+  `node server/scripts/smoke.mjs <url> <chave>`. Para rodar localmente, a
+  chave de teste vai em `server/.dev.vars` (`ADMIN_KEY_HASH=<sha256>`, fora do
+  git).
+- [x] **S2. Montar pelo app** (feito em novembro de 2026; falta testar com uma
+  conta de verdade). `scripts/build-server.mjs` empacota o Worker (esbuild) em
+  `server/dist/worker.js`, que o app embute; roda no `npm run dev` e no
+  `npm run build`. No Rust, `src-tauri/src/selfhost/`: `cloudflare.rs` (a API
+  REST: contas, subdomínio, chave do TURN, subir, ligar o `workers.dev`,
+  segredos, listar e apagar Workers), `secrets.rs` (token e chaves de
+  administrador no Gerenciador de Credenciais, pelo `keyring`) e os comandos
+  `selfhost_*`. O upload segue o formato do wrangler: na primeira vez
+  `migrations: {new_tag: "v1", steps: [{new_sqlite_classes: ["Room"]}]}` e os
+  segredos como `secret_text`; nas atualizações, sem migração e com
+  `keep_bindings`. Sem a permissão do Realtime o servidor sai sem TURN (e
+  avisa); se algo falhar no meio, desfaz o que criou. Se o `workers.dev` novo
+  demorar a responder, a senha fica para depois ("Definir senha"). Tela nova
+  em Configurações > Servidor (`ServerSettings.svelte`): token, conta, seus
+  servidores (pessoas e ao vivo, copiar link, atualizar, apagar com
+  confirmação), novo servidor e assumir um servidor montado em outro PC. A
+  página do navegador (arquivos estáticos) fica para a S6.
+- [x] **S3. Lista de servidores e entrar** (feito em novembro de 2026). Entrar
+  é o mesmo `RoomClient` nos dois modos: o servidor fala o protocolo do túnel e
+  o link vira `wss://<servidor>/ws`. A tela inicial tem só o campo do link (a
+  senha que faltar vem no `PasswordModal`) e, abaixo, a lista "Seus servidores"
+  (`ServerRail.svelte`, `lib/servers.ts`), uma barra de ícones à esquerda: os
+  que este PC administra (coroa; entra como dono pela chave de administrador,
+  `selfhost_admin_key`) e os em que já entrou (`joinedServers`, só endereço e
+  nome; a senha é pedida toda vez), com pessoas e ao vivo pelo `/api/info` a
+  cada minuto. Na sinalização: `ping` a cada 30 s
+  (`PING_MS`; o túnel ignora), recusas do servidor (`banned`,
+  `not-configured`, `too-many-attempts`, `room-full`) viram `RoomRefusedError`
+  e não tentam de novo, `join` com `admin`. O `RoomClient` guarda `server`
+  (nome, dono, versão) e `kicked`, e aplica `settings` e `room` na hora. Na
+  sala: nome do servidor no topo, convite sem a senha, e avisos de "removido
+  da sala" e "a conexão com o servidor caiu". Testes do `RoomClient` contra a
+  lógica de verdade do servidor (`room.server.test.ts`). O "contrato onde a
+  sala vive" ficou só do lado de criar (túnel): entrar não precisa dele.
+- [x] **S4. Administração** (feito em novembro de 2026). Em Configurações >
+  Servidor, "Administrar" abre o painel do dono no cartão do servidor
+  (`ServerAdmin.svelte`, `lib/serverAdmin.ts`, pela API do Worker com a chave
+  deste PC): nome, nova senha, limites de qualidade, duração da senha do TURN,
+  quem está na sala (dono marcado; "Ações": remover, ou banir por 1 hora, 1 dia
+  ou 1 semana) e os banidos (desbanir). Na sala, o dono tem o mesmo menu em cada
+  pessoa (botão de ações ou botão direito), pelo `kick` do WebSocket
+  (`RoomClient.kick`); todos veem a coroa no nome do dono. O menu do botão
+  direito virou um componente (`ui/ContextMenu.svelte`), usado também pela
+  barra de servidores.
+- [x] **S5. Kikar no túnel** (feito em novembro de 2026). O servidor da sala do
+  túnel (`room/server.rs`) gera uma chave de anfitrião em cada sala, que o
+  `create_room` devolve só para o app de quem criou (`hostKey`); o app entra com
+  ela (`join` com `admin`) e vira o dono da sala: `owner` no `welcome` e nas
+  pessoas (coroa, "anfitrião"), e o mesmo `kick` do servidor próprio (remover ou
+  banir). O ban é pelo endereço que o cloudflared repassa (`CF-Connecting-IP`) e
+  vale enquanto a sala existir. A senha do TURN continua sendo da sala inteira
+  nesse modo: quem é kikado guarda a dela até vencer. No app, `RoomClient.owner`
+  vale para os dois modos.
+- [x] **S6. Assistir pelo navegador** (feito em novembro de 2026; detalhes na
+  seção 5). A página vai num arquivo só (`dist-web/watch.html`), embutido no
+  Worker (servido em `/`) e no app (o túnel serve em `/watch`). A barra de
+  servidores do app passou a perguntar quem está em cada servidor só com a
+  janela em foco (economiza o limite grátis de quem tem o servidor).
+- [ ] **S7. Lançar** (0.7.0): CHANGELOG, PR `dev` → `main`, e só então a tag.
+
+---
+
+## 7. Compartilhar a webcam
+
+Além de telas e janelas, compartilhar a câmera, **ao mesmo tempo que a tela ou
+sozinha** (ex.: o jogo numa tela e o rosto em outra). Vale nos dois modos de
+sala e não depende da seção 6.
+
+**Como:**
+- **Escolher:** o seletor de "compartilhar" ganha a aba **Câmera**, com as
+  câmeras do PC (`enumerateDevices`), prévia ao vivo e qualidade dentro dos
+  limites da sala. Microfone fica de fora por enquanto (o som que já vai é o do
+  PC, junto da tela).
+- **Capturar e enviar pelo WebView** (`getUserMedia` e o WebRTC dele), sem
+  captura nativa: funciona no WebView2 e no WKWebView do Mac. Com o envio nativo
+  ligado, a tela sai pelo Rust e a câmera continua pelo WebView.
+- **Duas transmissões por pessoa:** hoje cada pessoa tem uma só (`sharing` +
+  `label`). Passa a ter até duas, `screen` e `camera`, cada uma com o próprio
+  rótulo. As mensagens de assistir (`watch`, `offer`, `answer`, `ice`, `view`,
+  `restart`) ganham `source`, e cada par (pessoa, fonte) tem a própria conexão.
+  Versões antigas ignoram os campos novos e continuam vendo só a tela.
+- **Na sala:** a câmera aparece como outra tela ("Câmera de Ana"), com prévia,
+  qualidade pelo tamanho em que está sendo vista (o `view` de hoje), tela cheia
+  e janela flutuante. Depois, se fizer falta: câmera por cima da tela da mesma
+  pessoa.
+- **Permissão:** o Windows e o Mac pedem permissão de câmera. Conferir como o
+  Tauri trata o pedido do WebView em cada sistema, e o que mostrar quando a
+  pessoa negar.
+- **Quem assiste pelo navegador** vê as câmeras como vê as telas. Mandar a
+  câmera pelo navegador seria fácil (`getUserMedia` existe lá), mas fica de fora
+  por enquanto: transmitir continua sendo pelo app.
+
+**Fases:**
+- [ ] **C1. Protocolo de duas fontes** (`source` nas mensagens, `camera` no
+  estado da pessoa) com testes, sem mudar nada na tela.
+- [ ] **C2. Câmera no seletor e na sala**, com permissão e prévia.
+- [ ] **C3. Teste numa sala real** com tela e câmera ao mesmo tempo, incluindo
+  alguém numa versão antiga.
 
 ---
 
@@ -455,6 +724,6 @@ firewall.
   Picture-in-Picture do navegador, que mostra `tauri.localhost` no topo.
 - Indicador de fps e atraso reais em cada tela.
 - Mensagens de erro mais claras (túnel, captura).
-- Anfitrião poder remover alguém da sala.
+- Anfitrião poder remover alguém da sala: entrou na seção 6 (S4 e S5).
 - SFU (Cloudflare Realtime ou LiveKit) só se as salas crescerem além de ~10
   pessoas transmitindo ao mesmo tempo.

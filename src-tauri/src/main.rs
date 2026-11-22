@@ -9,6 +9,7 @@ mod app;
 mod capture;
 mod encode;
 mod room;
+mod selfhost;
 mod send;
 mod tunnel;
 #[cfg(test)]
@@ -81,6 +82,18 @@ fn main() {
             room::commands::close_room,
             room::commands::update_room_ice_servers,
             room::turn::turn_cloudflare,
+            selfhost::selfhost_connect,
+            selfhost::selfhost_has_token,
+            selfhost::selfhost_accounts,
+            selfhost::selfhost_forget_token,
+            selfhost::selfhost_create,
+            selfhost::selfhost_configure,
+            selfhost::selfhost_update,
+            selfhost::selfhost_delete,
+            selfhost::selfhost_find,
+            selfhost::selfhost_claim,
+            selfhost::selfhost_add_turn,
+            selfhost::selfhost_admin_key,
             capture::commands::list_sources,
             capture::commands::thumbnail,
             capture::commands::start_capture,

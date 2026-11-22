@@ -2,8 +2,12 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { RoomClient } from "../../lib/room";
-  import { WrongPasswordError } from "../../lib/signaling";
-  import { parseInvite } from "../../lib/invite";
+  import { RoomRefusedError, WrongPasswordError, type RefusedReason } from "../../lib/signaling";
+  import { parseInvite, roomLabel } from "../../lib/invite";
+  import { forget, remember, sameServer, serverEntries, type ServerEntry } from "../../lib/servers";
+  import { selfhost } from "../../lib/selfhost";
+  import PasswordModal from "../../ui/PasswordModal.svelte";
+  import ServerRail from "./ServerRail.svelte";
   import {
     DEFAULT_SETTINGS,
     FPS_OPTIONS,
@@ -30,7 +34,10 @@
   const SETTINGS_KEY = "abretela.roomSettings";
 
   let code = $state("");
-  let joinPassword = $state("");
+  /** Para onde estou entrando: pelo link ou pela lista de servidores. */
+  type Target = { room: string; ws: string; password: string | null; owned: ServerEntry["owned"] };
+  /** Faltou a senha (ou estava errada): o modal pede, com o erro da última tentativa. */
+  let askPassword = $state<{ target: Target; error: string | null } | null>(null);
   let roomPassword = $state("");
   let busy = $state<string | null>(null);
   let error = $state<string | null>(null);
@@ -39,9 +46,9 @@
   let settings = $state<RoomSettings>(loadJson(SETTINGS_KEY, DEFAULT_SETTINGS));
 
   const trimmedName = $derived(prefs.name);
-  // o convite (link) já traz a senha
+  // o link do túnel já traz a senha; o do servidor próprio, não (o modal pede)
   const invite = $derived(parseInvite(code));
-  const inviteHasPassword = $derived(!!invite?.password);
+  const servers = $derived(serverEntries(prefs.servers, prefs.joinedServers));
 
   // resumo das opções da sala, mostrado só quando fogem do padrão
   const customized = $derived(
@@ -81,12 +88,20 @@
       showOptions = false;
       code = l;
       error = null;
-      if (!busy && parseInvite(l)?.password) joinRoom();
+      if (!busy && parseInvite(l)) joinRoom();
     });
   });
 
+  const REFUSED_TEXT: Record<RefusedReason, Parameters<typeof t>[0]> = {
+    banned: "refusedBanned",
+    "not-configured": "refusedNotConfigured",
+    "too-many-attempts": "refusedTooMany",
+    "room-full": "refusedFull",
+  };
+
   function errText(e: unknown) {
     if (e instanceof WrongPasswordError) return t("wrongPassword");
+    if (e instanceof RoomRefusedError) return t(REFUSED_TEXT[e.reason]);
     if (e instanceof Error && e.message === "connect-failed") return t("connectFailed");
     return String(e instanceof Error ? e.message : e);
   }
@@ -99,15 +114,17 @@
       const turn = $state.snapshot(prefs.turn);
       const lifetime = prefs.turnLifetime;
       const iceServers = await turnServersForRoom(turn, lifetime);
-      const info = await invoke<{ port: number; url: string; password: string }>("create_room", {
+      const info = await invoke<{ port: number; url: string; password: string; hostKey: string }>("create_room", {
         settings: $state.snapshot(settings),
         password: roomPassword.trim() || null,
         hostName: trimmedName,
         lang: prefs.lang,
         iceServers: iceServers.length ? iceServers : null,
       });
+      // entra com a chave do anfitrião: pode tirar gente da sala
       const client = new RoomClient(`ws://127.0.0.1:${info.port}/ws`, trimmedName, info.password, {
         nativeSend: prefs.nativeSend,
+        admin: info.hostKey,
       });
       try {
         await client.connect();
@@ -130,33 +147,68 @@
     }
   }
 
-  async function joinRoom(e?: SubmitEvent) {
-    e?.preventDefault();
+  /** Entra pelo link. Sem senha no link, usa a guardada do servidor ou pede no modal. */
+  function joinRoom() {
     error = null;
     if (!invite) {
       error = t("invalidCode");
       return;
     }
-    const password = invite.password ?? joinPassword.trim();
-    if (!password) {
-      error = t("enterPassword");
+    const known = servers.find((e) => sameServer(e.url, invite.room));
+    enter({ room: invite.room, ws: invite.ws, password: invite.password, owned: known?.owned ?? null });
+  }
+
+  /** Entra num servidor da lista: pede a senha (ou entra como dono, pela chave). */
+  function joinServer(entry: ServerEntry) {
+    const url = entry.url.replace(/\/+$/, "");
+    enter({ room: url, ws: `${url.replace(/^http/, "ws")}/ws`, password: null, owned: entry.owned });
+  }
+
+  async function enter(target: Target, typed?: string) {
+    // um clique duplo não pode abrir duas conexões (a segunda viraria um fantasma na sala)
+    if (busy) return;
+    error = null;
+    busy = t("connecting");
+    const password = typed ?? target.password;
+    // o dono entra pela chave de administrador deste PC, sem senha
+    const admin = !typed && target.owned ? await selfhost.adminKey(target.owned).catch(() => null) : null;
+    if (!password && !admin) {
+      busy = null;
+      askPassword = { target, error: null };
       return;
     }
-    busy = t("connecting");
+    askPassword = null;
     try {
-      const client = new RoomClient(invite.ws, trimmedName, password, { nativeSend: prefs.nativeSend });
+      const client = new RoomClient(target.ws, trimmedName, password ?? "", {
+        nativeSend: prefs.nativeSend,
+        admin: admin ?? undefined,
+      });
       await client.connect((n) => {
         if (n > 1) busy = t("connectingAttempt", { n });
       });
-      onenter({ client, room: invite.room, password, isHost: false });
+      // servidor próprio de outra pessoa: fica na lista (sem a senha, que é pedida toda vez)
+      if (client.server && !target.owned) {
+        prefs.joinedServers = remember(prefs.joinedServers, { url: target.room, name: client.server.name });
+      }
+      onenter({ client, room: target.room, password: password ?? "", isHost: false });
     } catch (e) {
-      error = errText(e);
       busy = null;
+      // senha errada (ou a chave de dono não vale mais): pede de novo no modal
+      if (e instanceof WrongPasswordError) askPassword = { target: { ...target, owned: null }, error: errText(e) };
+      else error = errText(e);
     }
+  }
+
+  function forgetServer(entry: ServerEntry) {
+    prefs.joinedServers = forget(prefs.joinedServers, entry.url);
   }
 </script>
 
-<div class="home">
+{#if servers.length}
+  <ServerRail entries={servers} disabled={!!busy} onjoin={joinServer} onforget={forgetServer} />
+{/if}
+
+<div class="home" class:with-rail={servers.length > 0}>
   <button class="icon-btn home-settings" title={t("settings")} onclick={() => (showSettings = true)}>
     <Icon name="settings" size={22} />
   </button>
@@ -238,17 +290,14 @@
 
       <div class="divider"><span>{t("or")}</span></div>
 
-      <form class="join" onsubmit={joinRoom}>
+      <form
+        class="join"
+        onsubmit={(e) => {
+          e.preventDefault();
+          joinRoom();
+        }}
+      >
         <input bind:value={code} placeholder={t("invitePlaceholder")} disabled={!!busy} spellcheck="false" />
-        {#if !inviteHasPassword}
-          <input
-            class="password"
-            type="password"
-            bind:value={joinPassword}
-            placeholder={t("password")}
-            disabled={!!busy}
-          />
-        {/if}
         <button class="btn" disabled={!code.trim() || !!busy}>{t("join")}</button>
       </form>
     {/if}
@@ -263,6 +312,16 @@
 
   <Credits />
 </div>
+
+{#if askPassword}
+  {@const target = askPassword.target}
+  <PasswordModal
+    room={servers.find((e) => sameServer(e.url, target.room))?.name ?? roomLabel(target.room)}
+    error={askPassword.error}
+    onsubmit={(password) => enter(target, password)}
+    oncancel={() => (askPassword = null)}
+  />
+{/if}
 
 {#if showSettings}
   <SettingsPage onclose={() => (showSettings = false)} />
@@ -280,6 +339,11 @@
     gap: 28px;
     padding: 32px 16px 20px;
     overflow-y: auto;
+  }
+
+  /* espaço da barra de servidores à esquerda */
+  .home.with-rail {
+    padding-left: calc(72px + 16px);
   }
 
   .home-settings {
@@ -400,10 +464,6 @@
   .join input {
     flex: 1;
     min-width: 0;
-  }
-
-  .join input.password {
-    flex: 0 0 96px;
   }
 
   .home-identity {

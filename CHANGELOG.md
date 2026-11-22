@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.0] - 2026-11-21
+
+### Novidades
+- **Servidor próprio**: uma sala que fica no ar sozinha, na sua conta grátis da Cloudflare, com link fixo. Ela não depende de ninguém estar com o app aberto: quem tem a senha entra quando quiser.
+  - Tudo pelo app, em Configurações > Servidor: você cola um token da Cloudflare e o app monta o servidor. Depois não precisa abrir a Cloudflare para nada.
+  - O repasse (TURN) vem embutido: cada pessoa que entra recebe uma senha só dela, trocada sozinha antes de vencer e cancelada quando ela sai.
+  - A senha da sala é pedida toda vez que alguém entra (o link nunca leva a senha).
+  - Você pode ter mais de um servidor, atualizar quando o app avisar, passar a administrar de outro PC e apagar tudo quando quiser.
+- **Painel do dono**: em Configurações > Servidor > Administrar, mude o nome, a senha, a qualidade permitida e quanto dura a senha do repasse; veja quem está na sala; remova ou bana alguém por 1 hora, 1 dia ou 1 semana; tire o ban.
+- **Remover e banir pela sala**: o dono do servidor e o anfitrião de uma sala comum têm, em cada pessoa da lista, a opção de tirar da sala (com ou sem ban). Todos veem uma coroa no nome de quem administra.
+- **Assistir pelo navegador**: quem recebe o link e não tem o app assiste pelo navegador, sem instalar nada, inclusive no celular. Na sala comum, a página do convite ganhou "Assistir no navegador"; no servidor próprio, o próprio link abre a página. Pelo navegador só dá para assistir; transmitir continua sendo pelo app. Quem assiste pelo navegador aparece com um ícone de globo.
+- **Seus servidores na tela inicial**: uma barra de ícones à esquerda, como a do Discord, com os servidores que você administra e os em que já entrou. Passe o mouse para ver quem está lá; clique para entrar; botão direito para copiar o link ou tirar da lista.
+
+### Melhorias
+- Para entrar numa sala basta colar o link. Se ele não trouxer a senha, o app pergunta.
+- Repasse (TURN) da sala comum: ao criar o token da Cloudflare, dá para escolher com ou sem a permissão do repasse, e um servidor que ficou sem repasse pode ganhar depois, sem montar de novo.
+- Quem cai da sala sem avisar (janela recarregada, internet que sumiu) deixa de aparecer duas vezes na lista.
+- Recusas da sala dizem o motivo (banido, sala cheia, senha ainda não definida, senhas erradas demais) e o app para de tentar à toa.
+- A sala comum também limita as senhas erradas por pessoa (5 por minuto), as pessoas na sala (50) e o tamanho das mensagens.
+
+### Por dentro
+- A sala comum continua compatível com quem está na 0.6.0 e anteriores. As salas de servidor próprio e a página do navegador são só da 0.7.0 em diante.
+
 ## [0.6.0] - 2026-11-21
 
 ### Novidades

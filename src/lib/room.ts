@@ -26,6 +26,12 @@ export class RoomClient {
   views = new Map<string, RemoteView>();
   status: "connecting" | "connected" | "closed" = "connecting";
   version = 0;
+  /** Sala de um servidor próprio (ROADMAP, seção 6); `null` na sala do túnel. */
+  server: { name: string; owner: boolean; version: number } | null = null;
+  /** O dono do servidor (ou o anfitrião do túnel) me tirou da sala (e se me baniu). */
+  kicked: { banned: boolean } | null = null;
+  /** Posso tirar gente da sala: dono do servidor próprio ou anfitrião do túnel. */
+  owner = false;
 
   private signaling: Signaling;
   private transport: MediaTransport;
@@ -42,6 +48,8 @@ export class RoomClient {
   /** Tela aberta na janela flutuante e a altura dela (continua visível com o app minimizado). */
   private pip: { id: string; height: number } | null = null;
   private onVisibility = () => this.watching.forEach((id) => this.sendView(id));
+  /** A janela vai fechar ou recarregar: sai direito, senão sobra um "fantasma" na sala. */
+  private onPageHide = () => this.leave();
   /** Servidores de repasse (TURN) do anfitrião, vindos no "welcome" (e renovados depois). */
   private iceServers: RTCIceServer[] = [];
   /** O que desligar ao sair da sala (ex.: a renovação do TURN do anfitrião). */
@@ -51,12 +59,16 @@ export class RoomClient {
     url: string,
     private name: string,
     password: string,
-    /** Envio nativo (experimental): minha tela sai codificada pelo próprio app. */
-    options: { nativeSend?: boolean } = {},
+    /**
+     * `nativeSend`: envio nativo (experimental), minha tela sai codificada pelo
+     * próprio app. `admin`: chave de dono do servidor próprio (entra sem senha).
+     */
+    options: { nativeSend?: boolean; admin?: string; web?: boolean } = {},
   ) {
-    this.signaling = new Signaling(url, name, password);
+    this.signaling = new Signaling(url, name, password, options.admin, options.web);
     this.signaling.onMessage = (msg) => this.handle(msg);
     this.signaling.onClosed = () => this.onClosed();
+    globalThis.addEventListener?.("pagehide", this.onPageHide);
     const host: TransportHost = {
       signal: (to, data) => this.signaling.signal(to, data),
       nameOf: (id) => this.nameOf(id),
@@ -118,6 +130,7 @@ export class RoomClient {
 
   private teardown() {
     this.cleanups.splice(0).forEach((fn) => fn());
+    globalThis.removeEventListener?.("pagehide", this.onPageHide);
     document.removeEventListener("visibilitychange", this.onVisibility);
     this.capture?.stop();
     this.capture = null;
@@ -140,12 +153,17 @@ export class RoomClient {
       case "welcome": {
         this.selfId = msg.id;
         this.settings = msg.settings ?? DEFAULT_SETTINGS;
-        this.peers.set(msg.id, { id: msg.id, name: this.name, sharing: false });
+        this.peers.set(msg.id, { id: msg.id, name: this.name, sharing: false, owner: !!msg.owner });
         msg.peers.forEach((p) => this.peers.set(p.id, p));
         this.status = "connected";
         document.addEventListener("visibilitychange", this.onVisibility);
         const others = msg.peers.map((p) => `"${p.name}"`).join(", ");
         log.info("room", `Joined the room (${others ? `${others} already there` : "nobody else there yet"})`);
+        this.owner = !!msg.owner;
+        if (typeof msg.version === "number") {
+          this.server = { name: msg.room?.name || "AbreTela", owner: !!msg.owner, version: msg.version };
+          log.info("room", `This is a server room ("${this.server.name}")${this.server.owner ? ", and I own it" : ""}`);
+        }
         this.iceServers = cleanIceServers(msg.iceServers);
         const relays = relayUrls(this.iceServers);
         log.info(
@@ -190,6 +208,19 @@ export class RoomClient {
       case "signal":
         this.onSignal(msg.from, msg.data);
         break;
+      case "room":
+        if (this.server && typeof msg.name === "string") this.server.name = msg.name;
+        break;
+      case "settings":
+        if (msg.settings) {
+          this.settings = msg.settings;
+          log.info("room", "The server owner changed the room's quality limits");
+        }
+        break;
+      case "kicked":
+        this.kicked = { banned: !!msg.banned };
+        log.warn("room", `I was removed from the room${msg.banned ? " and banned for a while" : ""}`);
+        break;
       case "ice-servers": {
         const servers = cleanIceServers(msg.iceServers);
         if (!servers.length) break;
@@ -212,6 +243,15 @@ export class RoomClient {
     } catch (e) {
       log.error("room", `Something broke while handling "${data.kind}" from ${this.nameOf(from)}: ${describeError(e)}`);
     }
+  }
+
+  // ---------- dono do servidor próprio ou anfitrião do túnel ----------
+
+  /** Tira alguém da sala (com `banMinutes`, não volta por esse tempo). Só vale para o dono. */
+  kick(id: string, banMinutes = 0) {
+    if (!this.owner || id === this.selfId) return;
+    log.info("room", `Removing ${this.nameOf(id)} from the room${banMinutes ? ` (ban for ${banMinutes} min)` : ""}`);
+    this.signaling.send({ type: "kick", id, banMinutes });
   }
 
   // ---------- transmitir ----------

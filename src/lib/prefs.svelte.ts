@@ -7,6 +7,8 @@ import { zh } from "./locales/zh";
 import { ko } from "./locales/ko";
 import { ja } from "./locales/ja";
 import { TURN_KINDS, turnLifetime, type TurnConfig } from "./turn";
+import { loadServer, type Account, type OwnedServer } from "./selfhost";
+import { loadJoined, type JoinedServer } from "./servers";
 
 export const LANGUAGES = [
   { code: "pt", name: "Português" },
@@ -41,7 +43,21 @@ type Prefs = {
   turn: TurnConfig;
   /** Quanto dura a senha temporária do TURN, em minutos (Cloudflare e coturn). */
   turnLifetime: number;
+  /** Servidor próprio (ROADMAP, seção 6): a conta da Cloudflare escolhida. */
+  cloudflareAccount: Account | null;
+  /** Os servidores que este PC administra (o token e as chaves ficam no Rust). */
+  servers: OwnedServer[];
+  /** Servidores de outras pessoas em que já entrei, com a senha (entra direto). */
+  joinedServers: JoinedServer[];
 };
+
+function loadAccount(v: unknown): Account | null {
+  const a = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  return typeof a.id === "string" && a.id ? { id: a.id, name: typeof a.name === "string" ? a.name : "" } : null;
+}
+
+const loadServers = (v: unknown): OwnedServer[] =>
+  (Array.isArray(v) ? v : []).map(loadServer).filter((s): s is OwnedServer => s !== null);
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
@@ -84,6 +100,9 @@ function load(): Prefs {
     nativeSend: saved.nativeSend ?? false,
     turn: loadTurn(saved.turn),
     turnLifetime: turnLifetime(saved.turnLifetime),
+    cloudflareAccount: loadAccount(saved.cloudflareAccount),
+    servers: loadServers(saved.servers),
+    joinedServers: loadJoined(saved.joinedServers),
   };
 }
 
@@ -169,6 +188,27 @@ export const prefs = {
   },
   set turnLifetime(v: number) {
     state.turnLifetime = turnLifetime(v);
+    apply();
+  },
+  get cloudflareAccount(): Account | null {
+    return state.cloudflareAccount;
+  },
+  set cloudflareAccount(v: Account | null) {
+    state.cloudflareAccount = loadAccount(v);
+    apply();
+  },
+  get servers(): OwnedServer[] {
+    return state.servers;
+  },
+  set servers(v: OwnedServer[]) {
+    state.servers = loadServers(v);
+    apply();
+  },
+  get joinedServers(): JoinedServer[] {
+    return state.joinedServers;
+  },
+  set joinedServers(v: JoinedServer[]) {
+    state.joinedServers = loadJoined(v);
     apply();
   },
 };

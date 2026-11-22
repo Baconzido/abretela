@@ -36,11 +36,14 @@ impl RoomState {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RoomInfo {
     port: u16,
     /// URL https pública da sala (o convite é ela + "#senha").
     url: String,
     password: String,
+    /// Chave do anfitrião: o app de quem criou a sala entra com ela (kikar).
+    host_key: String,
 }
 
 /// Senha numérica de 6 dígitos.
@@ -99,7 +102,7 @@ pub async fn create_room(
     let url = tunnel.public_url().to_string();
     log_info!("room", "Room is online at {url}");
     *state.room.lock().unwrap() = Some(OpenRoom { stop: server.stop, tunnel, handle: server.handle });
-    Ok(RoomInfo { port: server.port, url, password })
+    Ok(RoomInfo { port: server.port, url, password, host_key: server.host_key })
 }
 
 /// O app do anfitrião renovou a senha do repasse (TURN): a sala manda a nova

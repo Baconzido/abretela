@@ -15,6 +15,8 @@
   import Icon from "../../ui/Icon.svelte";
   import Avatar from "../../ui/Avatar.svelte";
   import ConfirmModal from "../../ui/ConfirmModal.svelte";
+  import ContextMenu, { type MenuItem } from "../../ui/ContextMenu.svelte";
+  import { BAN_OPTIONS } from "../../lib/serverAdmin";
 
   type Props = {
     client: RoomClient;
@@ -135,7 +137,41 @@
     label?: string | null;
     isSelf: boolean;
     watching: boolean;
+    owner?: boolean;
+    web?: boolean;
   };
+
+  /** Menu de dono sobre alguém da lista (servidor próprio). */
+  let peerMenu = $state<{ peer: PeerView; x: number; y: number } | null>(null);
+
+  function openPeerMenu(e: MouseEvent, peer: PeerView) {
+    if (!client.owner || peer.isSelf || peer.owner) return;
+    e.preventDefault();
+    peerMenu = { peer, x: e.clientX, y: e.clientY };
+  }
+
+  /** 60 -> "1 hora" (no idioma do app). */
+  function banLabel(minutes: number) {
+    const [unit, n] =
+      minutes % (7 * 1440) === 0
+        ? (["week", minutes / (7 * 1440)] as const)
+        : minutes % 1440 === 0
+          ? (["day", minutes / 1440] as const)
+          : (["hour", minutes / 60] as const);
+    return new Intl.NumberFormat(prefs.lang, { style: "unit", unit, unitDisplay: "long" }).format(n);
+  }
+
+  function peerMenuItems(peer: PeerView): MenuItem[] {
+    return [
+      { label: t("adminKick"), icon: "logout", onclick: () => client.kick(peer.id) },
+      ...BAN_OPTIONS.map((m) => ({
+        label: t("adminBan", { time: banLabel(m) }),
+        icon: "lock" as const,
+        danger: true,
+        onclick: () => client.kick(peer.id, m),
+      })),
+    ];
+  }
 
   const snap = $derived.by(() => {
     tick;
@@ -155,6 +191,9 @@
       .filter((x) => !!x);
     return {
       status: client.status,
+      server: client.server ? { ...client.server } : null,
+      owner: client.owner,
+      kicked: client.kicked,
       sharing: !!client.localStream,
       peers,
       tiles,
@@ -269,7 +308,8 @@
   });
 
   async function copyInvite() {
-    await navigator.clipboard.writeText(makeInvite(roomUrl, password));
+    // servidor próprio: o link vai sem a senha (quem entra digita uma vez)
+    await navigator.clipboard.writeText(client.server ? roomUrl : makeInvite(roomUrl, password));
     copied = true;
     setTimeout(() => (copied = false), 1500);
   }
@@ -290,7 +330,7 @@
 
     <div class="room-pill">
       <span class="pill-label">{t("room")}</span>
-      <code title={roomUrl}>{roomLabel(roomUrl)}</code>
+      <code title={roomUrl}>{snap.server?.name ?? roomLabel(roomUrl)}</code>
       <span class="pill-sep"></span>
       <Icon name="lock" size={14} />
       <code class="pw">{showPassword ? password : "•".repeat(password.length)}</code>
@@ -303,7 +343,12 @@
       </button>
     </div>
 
-    <button class="btn small" class:success={copied} title={t("copyInviteHint")} onclick={copyInvite}>
+    <button
+      class="btn small"
+      class:success={copied}
+      title={t(snap.server ? "copyServerInviteHint" : "copyInviteHint")}
+      onclick={copyInvite}
+    >
       <Icon name={copied ? "check" : "copy"} size={16} />
       {copied ? t("copied") : t("copyInvite")}
     </button>
@@ -344,6 +389,7 @@
           class:live={p.sharing}
           onmouseenter={(e) => hoverPeer(p, e)}
           onmouseleave={leavePeer}
+          oncontextmenu={(e) => openPeerMenu(e, p)}
         >
           {#if collapsed}
             <button
@@ -362,7 +408,11 @@
             </span>
             <div class="peer-info">
               <span class="peer-name">
-                {p.name}{#if p.isSelf}{" "}<span class="muted">({t("you")})</span>{/if}
+                {p.name}{#if p.owner}{" "}<span class="owner-crown" title={t(snap.server ? "adminOwner" : "roomHost")}
+                    ><Icon name="crown" size={12} /></span
+                  >{/if}{#if p.web}{" "}<span class="web-badge" title={t("webViaBrowser")}
+                    ><Icon name="globe" size={12} /></span
+                  >{/if}{#if p.isSelf}{" "}<span class="muted">({t("you")})</span>{/if}
               </span>
               {#if p.sharing && p.label}
                 <span class="peer-label" title={p.label}>{p.label}</span>
@@ -376,6 +426,18 @@
                 onclick={() => toggleWatch(p.id, p.watching)}
               >
                 {p.watching ? t("stopWatching") : p.isSelf ? t("preview") : t("watch")}
+              </button>
+            {/if}
+            {#if snap.owner && !p.isSelf && !p.owner}
+              <button
+                class="icon-btn small peer-more"
+                title={t("adminActions")}
+                onclick={(e) => {
+                  e.stopPropagation();
+                  peerMenu = { peer: p, x: e.clientX, y: e.clientY };
+                }}
+              >
+                <Icon name="sliders" size={15} />
               </button>
             {/if}
           {/if}
@@ -468,7 +530,7 @@
               <span class="action-icon mint"><Icon name={copied ? "check" : "link"} size={20} /></span>
               <span class="action-text">
                 <span class="action-title">{copied ? t("copied") : t("emptyInviteTitle")}</span>
-                <span class="action-hint">{t("emptyInviteHint")}</span>
+                <span class="action-hint">{t(snap.server ? "copyServerInviteHint" : "emptyInviteHint")}</span>
               </span>
             </button>
           {/if}
@@ -604,12 +666,30 @@
     <SettingsPage onclose={() => (showSettings = false)} />
   {/if}
 
+  {#if peerMenu}
+    <ContextMenu
+      x={peerMenu.x}
+      y={peerMenu.y}
+      title={peerMenu.peer.name}
+      items={peerMenuItems(peerMenu.peer)}
+      onclose={() => (peerMenu = null)}
+    />
+  {/if}
+
   {#if snap.status === "closed"}
     <div class="modal-backdrop">
       <div class="modal closed-modal">
         <img class="empty-mascot sad" src="/logo.svg" alt="" />
-        <h2>{t("roomClosed")}</h2>
-        <p class="muted">{t("roomClosedBody")}</p>
+        {#if snap.kicked}
+          <h2>{t("kickedTitle")}</h2>
+          <p class="muted">{t(snap.kicked.banned ? "kickedBannedBody" : "kickedBody")}</p>
+        {:else if snap.server}
+          <h2>{t("serverLostTitle")}</h2>
+          <p class="muted">{t("serverLostBody")}</p>
+        {:else}
+          <h2>{t("roomClosed")}</h2>
+          <p class="muted">{t("roomClosedBody")}</p>
+        {/if}
         <button
           class="btn primary"
           onclick={() => {
@@ -937,6 +1017,18 @@
 
   .closed-modal .btn {
     margin-top: 8px;
+  }
+
+  .web-badge {
+    color: var(--muted);
+    display: inline-flex;
+    vertical-align: -1px;
+  }
+
+  .owner-crown {
+    color: var(--sun-text);
+    display: inline-flex;
+    vertical-align: -1px;
   }
 
   .room-body {
