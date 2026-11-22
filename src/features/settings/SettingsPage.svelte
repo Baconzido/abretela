@@ -8,6 +8,7 @@
   import Toggle from "../../ui/Toggle.svelte";
   import Credits from "../../ui/Credits.svelte";
   import Avatar from "../../ui/Avatar.svelte";
+  import ServerSettings from "./ServerSettings.svelte";
   import {
     isTurnComplete,
     renewsPassword,
@@ -26,11 +27,12 @@
     nameDraft = prefs.name;
   }
 
-  type Section = "general" | "appearance" | "about";
+  type Section = "general" | "server" | "appearance" | "about";
   let section = $state<Section>("general");
 
   const sections = $derived<{ id: Section; icon: IconName; label: string; desc: string }[]>([
     { id: "general", icon: "sliders", label: t("general"), desc: t("generalDesc") },
+    { id: "server", icon: "globe", label: t("selfhostSection"), desc: t("selfhostSectionDesc") },
     { id: "appearance", icon: "sun", label: t("appearance"), desc: t("appearanceDesc") },
     { id: "about", icon: "info", label: t("about"), desc: t("aboutDesc") },
   ]);
@@ -345,6 +347,8 @@
             {/if}
           </div>
         </section>
+      {:else if section === "server"}
+        <ServerSettings />
       {:else if section === "appearance"}
         <section class="settings-group">
           <div class="group-label"><Icon name="sun" size={15} /> {t("theme")}</div>

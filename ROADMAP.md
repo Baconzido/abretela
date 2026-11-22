@@ -574,9 +574,23 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
   `node server/scripts/smoke.mjs <url> <chave>`. Para rodar localmente, a
   chave de teste vai em `server/.dev.vars` (`ADMIN_KEY_HASH=<sha256>`, fora do
   git).
-- [ ] **S2. Montar pelo app.** Token, conta, subdomínio, chave do TURN, subir o
-  Worker e os arquivos, segredos no Gerenciador de Credenciais. Atualizar e
-  apagar o servidor.
+- [x] **S2. Montar pelo app** (feito em novembro de 2026; falta testar com uma
+  conta de verdade). `scripts/build-server.mjs` empacota o Worker (esbuild) em
+  `server/dist/worker.js`, que o app embute; roda no `npm run dev` e no
+  `npm run build`. No Rust, `src-tauri/src/selfhost/`: `cloudflare.rs` (a API
+  REST: contas, subdomínio, chave do TURN, subir, ligar o `workers.dev`,
+  segredos, listar e apagar Workers), `secrets.rs` (token e chaves de
+  administrador no Gerenciador de Credenciais, pelo `keyring`) e os comandos
+  `selfhost_*`. O upload segue o formato do wrangler: na primeira vez
+  `migrations: {new_tag: "v1", steps: [{new_sqlite_classes: ["Room"]}]}` e os
+  segredos como `secret_text`; nas atualizações, sem migração e com
+  `keep_bindings`. Sem a permissão do Realtime o servidor sai sem TURN (e
+  avisa); se algo falhar no meio, desfaz o que criou. Se o `workers.dev` novo
+  demorar a responder, a senha fica para depois ("Definir senha"). Tela nova
+  em Configurações > Servidor (`ServerSettings.svelte`): token, conta, seus
+  servidores (pessoas e ao vivo, copiar link, atualizar, apagar com
+  confirmação), novo servidor e assumir um servidor montado em outro PC. A
+  página do navegador (arquivos estáticos) fica para a S6.
 - [ ] **S3. Lista de servidores e entrar.** O contrato "onde a sala vive" com
   os dois modos; a tela inicial com os servidores de que a pessoa faz parte,
   senha digitada uma vez e guardada.

@@ -7,3 +7,4 @@ src-tauri/binaries/
 server/.dev.vars
 server/.wrangler/
 .wrangler/
+server/dist/
