@@ -456,6 +456,25 @@ Os dois ficam atrás do mesmo contrato no app (onde a sala vive), como o túnel 
 está hoje (`tunnel::Tunnel`), e falam o mesmo protocolo de sala (`join`,
 `welcome`, `peer-*`, `signal`, `ice-servers`), mais o que for de administração.
 
+### Servidor = uma sala, e a lista de servidores no app
+
+- **Cada servidor é uma sala só**, a mesma tela de hoje (quem está, quem está ao
+  vivo, assistir). Não há canais dentro do servidor.
+- **Tela inicial parecida com a lista de servidores do Discord:** os servidores
+  de que a pessoa faz parte (nome, ícone com a inicial, quantas pessoas e quantas
+  ao vivo agora), com um clique para entrar. Ao lado, as ações de hoje: criar uma
+  sala pelo túnel e entrar por um link. O dono vê os próprios servidores com a
+  opção de administrar.
+- **Senha:** o link do servidor não leva a senha (no túnel continua levando).
+  Na primeira vez a pessoa digita; o app guarda a senha daquele servidor e nas
+  próximas entra direto. Se o dono mudar a senha, a guardada falha e o app pede
+  de novo. Guardar é aceitável: essa senha só abre a sala. No navegador ela fica
+  no `localStorage` dele.
+- **Quem é o dono:** a chave de administrador (abaixo), nunca o nome, o IP ou a
+  conta da Cloudflare. O app do dono manda a chave ao conectar; o Worker compara
+  com o hash que guarda e marca aquela conexão como dona. Depois: chaves de
+  moderador, com menos poderes.
+
 ### Montar o servidor pelo app, sem abrir a Cloudflare
 
 O dono cola **um token da API da Cloudflare** em Configurações e o app faz o
@@ -498,8 +517,8 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
 
 ### O que o dono faz pelo app
 
-- Criar, renomear e apagar salas; mudar senha e limites de qualidade de cada
-  uma; copiar o link.
+- Criar mais de um servidor se quiser (cada um é um Worker e uma sala);
+  renomear; mudar senha e limites de qualidade; copiar o link.
 - Ver quem está em cada sala, kikar e banir (por sessão; o banido não volta com
   o mesmo link enquanto o ban durar).
 - Escolher quanto dura a senha do TURN (como na seção 4.4).
@@ -510,7 +529,7 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
 
 ### Como o servidor funciona
 
-- Um Worker que recebe as conexões e um Durable Object por sala. A sala guarda
+- Um Worker que recebe as conexões e um Durable Object com a sala. Ela guarda
   no SQLite o nome, o hash da senha, os limites e os banidos; quem está
   conectado fica só na memória.
 - **Hibernação obrigatória** (API de hibernação de WebSocket): sala parada não
@@ -521,9 +540,9 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
   dela; um alarme do Durable Object manda outra antes de vencer
   (`ice-servers`); ao sair ou ser kikada, a dela é revogada. O resto da troca
   (ICE restart na mesma conexão) é o que já existe para a seção 4.4.
-- **Link:** `https://abretela.<conta>.workers.dev/r/<sala>#senha`. Conferir se o
-  convite das versões antigas aceita caminho; se não, a sala do servidor fica só
-  para a versão nova em diante.
+- **Link:** `https://<nome>.<conta>.workers.dev`, sem senha. As versões antigas
+  esperam a senha no link, então o servidor fica só para a versão nova em
+  diante.
 - **Contra abuso:** só o dono cria salas; limite de tentativas de senha por
   `CF-Connecting-IP`; limite de pessoas por sala e de tamanho de mensagem.
 
@@ -549,8 +568,9 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
 - [ ] **S2. Montar pelo app.** Token, conta, subdomínio, chave do TURN, subir o
   Worker e os arquivos, segredos no Gerenciador de Credenciais. Atualizar e
   apagar o servidor.
-- [ ] **S3. Entrar e criar salas no servidor.** O contrato "onde a sala vive"
-  com os dois modos; Home e Configurações escolhem o modo.
+- [ ] **S3. Lista de servidores e entrar.** O contrato "onde a sala vive" com
+  os dois modos; a tela inicial com os servidores de que a pessoa faz parte,
+  senha digitada uma vez e guardada.
 - [ ] **S4. Administração.** Tela do dono: salas, pessoas, kikar e banir, senha,
   limites, duração do TURN.
 - [ ] **S5. Kikar no túnel.** O anfitrião kika pelo app; a senha do TURN
@@ -558,6 +578,45 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
 - [ ] **S6. Assistir pelo navegador** (seção 5), nos dois modos: no servidor a
   página sai do Worker; no túnel, do PC do anfitrião (W3).
 - [ ] **S7. Lançar** (0.7.0): CHANGELOG, PR `dev` → `main`, e só então a tag.
+
+---
+
+## 7. Compartilhar a webcam
+
+Além de telas e janelas, compartilhar a câmera, **ao mesmo tempo que a tela ou
+sozinha** (ex.: o jogo numa tela e o rosto em outra). Vale nos dois modos de
+sala e não depende da seção 6.
+
+**Como:**
+- **Escolher:** o seletor de "compartilhar" ganha a aba **Câmera**, com as
+  câmeras do PC (`enumerateDevices`), prévia ao vivo e qualidade dentro dos
+  limites da sala. Microfone fica de fora por enquanto (o som que já vai é o do
+  PC, junto da tela).
+- **Capturar e enviar pelo WebView** (`getUserMedia` e o WebRTC dele), sem
+  captura nativa: funciona no WebView2 e no WKWebView do Mac. Com o envio nativo
+  ligado, a tela sai pelo Rust e a câmera continua pelo WebView.
+- **Duas transmissões por pessoa:** hoje cada pessoa tem uma só (`sharing` +
+  `label`). Passa a ter até duas, `screen` e `camera`, cada uma com o próprio
+  rótulo. As mensagens de assistir (`watch`, `offer`, `answer`, `ice`, `view`,
+  `restart`) ganham `source`, e cada par (pessoa, fonte) tem a própria conexão.
+  Versões antigas ignoram os campos novos e continuam vendo só a tela.
+- **Na sala:** a câmera aparece como outra tela ("Câmera de Ana"), com prévia,
+  qualidade pelo tamanho em que está sendo vista (o `view` de hoje), tela cheia
+  e janela flutuante. Depois, se fizer falta: câmera por cima da tela da mesma
+  pessoa.
+- **Permissão:** o Windows e o Mac pedem permissão de câmera. Conferir como o
+  Tauri trata o pedido do WebView em cada sistema, e o que mostrar quando a
+  pessoa negar.
+- **Quem assiste pelo navegador** vê as câmeras como vê as telas. Mandar a
+  câmera pelo navegador seria fácil (`getUserMedia` existe lá), mas fica de fora
+  por enquanto: transmitir continua sendo pelo app.
+
+**Fases:**
+- [ ] **C1. Protocolo de duas fontes** (`source` nas mensagens, `camera` no
+  estado da pessoa) com testes, sem mudar nada na tela.
+- [ ] **C2. Câmera no seletor e na sala**, com permissão e prévia.
+- [ ] **C3. Teste numa sala real** com tela e câmera ao mesmo tempo, incluindo
+  alguém numa versão antiga.
 
 ---
 
