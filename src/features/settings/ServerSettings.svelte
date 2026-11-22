@@ -23,6 +23,8 @@
   let hasToken = $state<boolean | null>(null);
   let accounts = $state<Account[]>([]);
   let tokenDraft = $state("");
+  /** O token vai ter a permissão do Realtime (TURN)? */
+  let withTurn = $state(true);
   let busy = $state<string | null>(null);
   let error = $state<string | null>(null);
 
@@ -136,6 +138,13 @@
       if (found) found = found.filter((f) => f.scriptName !== s.scriptName);
     });
 
+  const addTurn = (s: OwnedServer) =>
+    run("addTurn", async () => {
+      const turnKeyId = await selfhost.addTurn(s);
+      saveServer({ ...s, turnKeyId, turnError: null });
+      refresh(s);
+    });
+
   const find = () =>
     run("find", async () => {
       if (account) found = await selfhost.find(account.id);
@@ -172,11 +181,18 @@
 
   {#if hasToken === false}
     <div class="stack">
-      <button class="btn" onclick={() => openUrl(tokenUrl()).catch((e) => (error = errText(e)))}>
+      <label class="field">
+        <span>{t("selfhostTokenKind")}</span>
+        <select value={withTurn ? "turn" : "plain"} onchange={(e) => (withTurn = e.currentTarget.value === "turn")}>
+          <option value="turn">{t("selfhostTokenWithTurn")}</option>
+          <option value="plain">{t("selfhostTokenWithoutTurn")}</option>
+        </select>
+      </label>
+      <button class="btn" onclick={() => openUrl(tokenUrl(withTurn)).catch((e) => (error = errText(e)))}>
         <Icon name="link" size={15} />
         {t("selfhostCreateToken")}
       </button>
-      <p class="hint">{t("selfhostTokenHint")}</p>
+      <p class="hint">{t(withTurn ? "selfhostTokenHint" : "selfhostTokenHintNoTurn")}</p>
       <form
         class="row"
         onsubmit={(e) => {
@@ -278,8 +294,12 @@
             </button>
           </form>
         {/if}
-        {#if s.turnError}
+        {#if info ? !info.turn : !!s.turnError}
           <p class="hint warn">{t("selfhostNoTurn")}</p>
+          <button class="btn small" disabled={!!busy || !hasToken} onclick={() => addTurn(s)}>
+            {#if busy === "addTurn"}<span class="spinner small"></span>{/if}
+            {t("selfhostAddTurn")}
+          </button>
         {/if}
         {#if isOutdated(info ?? null)}
           <p class="hint">{t("selfhostOutdated")}</p>

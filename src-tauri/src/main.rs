@@ -92,6 +92,7 @@ fn main() {
             selfhost::selfhost_delete,
             selfhost::selfhost_find,
             selfhost::selfhost_claim,
+            selfhost::selfhost_add_turn,
             capture::commands::list_sources,
             capture::commands::thumbnail,
             capture::commands::start_capture,

@@ -59,12 +59,15 @@ export function loadServer(v: unknown): OwnedServer | null {
 
 /**
  * Link para criar o token na Cloudflare com as permissões de Workers marcadas.
- * A do Realtime (TURN) não tem chave no link: a tela explica como marcar.
+ * Com `withTurn`, tenta marcar também a do Realtime (TURN): a Cloudflare não
+ * documenta a chave dela e ignora em silêncio as que não conhece, então a tela
+ * também explica onde marcar à mão.
  */
-export function tokenUrl(): string {
+export function tokenUrl(withTurn: boolean): string {
   const permissions = [
     { key: "workers_scripts", type: "edit" },
     { key: "account_settings", type: "read" },
+    ...(withTurn ? [{ key: "realtime", type: "edit" }] : []),
   ];
   const q = new URLSearchParams({
     permissionGroupKeys: JSON.stringify(permissions),
@@ -104,4 +107,6 @@ export const selfhost = {
     invoke<void>("selfhost_delete", { accountId: s.accountId, scriptName: s.scriptName, turnKeyId: s.turnKeyId }),
   find: (accountId: string) => invoke<FoundServer[]>("selfhost_find", { accountId }),
   claim: (accountId: string, scriptName: string) => invoke<OwnedServer>("selfhost_claim", { accountId, scriptName }),
+  /** Cria a chave do TURN e põe no servidor; devolve o id da chave. */
+  addTurn: (s: OwnedServer) => invoke<string>("selfhost_add_turn", { accountId: s.accountId, scriptName: s.scriptName }),
 };

@@ -27,13 +27,19 @@ describe("loadServer", () => {
 
 describe("tokenUrl", () => {
   it("abre o formulário da Cloudflare com as permissões de Workers", () => {
-    const url = new URL(tokenUrl());
+    const url = new URL(tokenUrl(false));
     expect(url.origin + url.pathname).toBe("https://dash.cloudflare.com/profile/api-tokens");
     expect(JSON.parse(url.searchParams.get("permissionGroupKeys")!)).toEqual([
       { key: "workers_scripts", type: "edit" },
       { key: "account_settings", type: "read" },
     ]);
     expect(url.searchParams.get("name")).toBe("AbreTela");
+  });
+
+  it("com repasse, tenta marcar também o Realtime", () => {
+    const keys = JSON.parse(new URL(tokenUrl(true)).searchParams.get("permissionGroupKeys")!);
+    expect(keys).toContainEqual({ key: "realtime", type: "edit" });
+    expect(keys).toHaveLength(3);
   });
 });
 

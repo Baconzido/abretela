@@ -158,7 +158,7 @@ async fn undo_turn(cf: &Cloudflare, account: &str, uid: Option<&str>) {
 
 fn turn_permission_hint(e: &CfError) -> String {
     if e.is_forbidden() {
-        "the token has no Realtime permission, so the server has no relay (TURN)".into()
+        "the token has no Realtime permission".into()
     } else {
         format!("could not create the relay server (TURN) key: {e}")
     }
@@ -315,6 +315,28 @@ pub async fn selfhost_delete(account_id: String, script_name: String, turn_key_i
     let _ = secrets::forget_admin_key(&script_name);
     log_info!("selfhost", "Deleted the server {script_name}");
     Ok(())
+}
+
+/// Põe o TURN num servidor que ficou sem (o token não tinha a permissão do
+/// Realtime na hora de montar): cria a chave e grava os dois segredos.
+#[tauri::command]
+pub async fn selfhost_add_turn(account_id: String, script_name: String) -> Result<String, String> {
+    let cf = saved_client()?;
+    let key = cf.create_turn_key(&account_id, &script_name).await.map_err(|e| turn_permission_hint(&e))?;
+    let Some(secret) = key.secret.as_deref() else {
+        let _ = cf.delete_turn_key(&account_id, &key.uid).await;
+        return Err("Cloudflare did not return the relay server (TURN) key".into());
+    };
+    let saved = async {
+        cf.set_secret(&account_id, &script_name, "TURN_KEY_ID", &key.uid).await?;
+        cf.set_secret(&account_id, &script_name, "TURN_KEY_TOKEN", secret).await
+    };
+    if let Err(e) = saved.await {
+        let _ = cf.delete_turn_key(&account_id, &key.uid).await;
+        return Err(format!("could not give the relay server (TURN) key to the server: {e}"));
+    }
+    log_info!("selfhost", "Added a relay server (TURN) to the server {script_name}");
+    Ok(key.uid)
 }
 
 /// Servidores do AbreTela que já existem na conta (montados em outro PC).
