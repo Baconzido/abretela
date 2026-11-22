@@ -310,7 +310,7 @@ a manda ao servidor), então ninguém precisa digitar.
   e uma aba assistindo uma transmissão (WebView e nativa), como nos testes do
   envio nativo. Chrome, Edge, Firefox (H.264 pelo OpenH264 que ele baixa) e, se
   der, Safari/iPhone e Android.
-- [ ] **W7. Lançar:** junto com a seção 6 (fase S6, versão 0.7.0). No servidor
+- [x] **W7. Lançar** (saiu na 0.7.0, 21/11/2026): junto com a seção 6 (fase S6, versão 0.7.0). No servidor
   próprio a página sai do Worker (arquivos estáticos), e não do PC do anfitrião.
 
 **Limites (ficam como estão):**
@@ -653,7 +653,8 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
   Worker (servido em `/`) e no app (o túnel serve em `/watch`). A barra de
   servidores do app passou a perguntar quem está em cada servidor só com a
   janela em foco (economiza o limite grátis de quem tem o servidor).
-- [ ] **S7. Lançar** (0.7.0): CHANGELOG, PR `dev` → `main`, e só então a tag.
+- [x] **S7. Lançar**: saiu na 0.7.0 (21/11/2026). Depois dela, na `dev`: a página do
+  navegador põe "Abrir no AbreTela" primeiro e lembra quem tem o app (servidor versão 4).
 
 ---
 
