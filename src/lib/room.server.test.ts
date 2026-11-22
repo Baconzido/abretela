@@ -8,7 +8,7 @@ import { PING_MS, RoomRefusedError, WrongPasswordError } from "./signaling";
 import { installFakeRtc, settle } from "./testing/fakeRtc";
 import { RoomCore, type Conn, type RoomHost } from "../../server/src/core";
 import { sha256 } from "../../server/src/crypto";
-import type { ConnState } from "../../server/src/protocol";
+import { SERVER_VERSION, type ConnState } from "../../server/src/protocol";
 import { serverAdmin } from "./serverAdmin";
 import type { OwnedServer } from "./selfhost";
 
@@ -110,7 +110,7 @@ describe("RoomClient no servidor próprio", () => {
   it("entra com a senha e sabe que é um servidor (nome, sem ser dono)", async () => {
     const ana = await join("Ana");
     expect(ana.status).toBe("connected");
-    expect(ana.server).toEqual({ name: "Sala do Breno", owner: false, version: 1 });
+    expect(ana.server).toEqual({ name: "Sala do Breno", owner: false, version: SERVER_VERSION });
     ana.leave();
   });
 

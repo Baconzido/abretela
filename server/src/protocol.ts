@@ -3,8 +3,11 @@
 // `signal`, `ice-servers`. O que é novo (dono, kikar, configurações) as versões
 // antigas do app ignoram.
 
-/** Muda quando o protocolo ou a administração mudam (o app confere). */
-export const SERVER_VERSION = 1;
+/**
+ * Muda quando o código do servidor muda: o app compara com o do Worker publicado
+ * e oferece "Atualizar servidor". 2: tira da sala as conexões sem ping.
+ */
+export const SERVER_VERSION = 2;
 
 /** Limites de qualidade da sala (mesmos nomes do app e do servidor do túnel). */
 export type RoomSettings = { minHeight: number; maxHeight: number; minFps: number; maxFps: number };
