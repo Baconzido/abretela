@@ -3,7 +3,8 @@
   import { invoke } from "@tauri-apps/api/core";
   import { RoomClient } from "../../lib/room";
   import { WrongPasswordError } from "../../lib/signaling";
-  import { parseInvite } from "../../lib/invite";
+  import { parseInvite, roomLabel } from "../../lib/invite";
+  import PasswordModal from "../../ui/PasswordModal.svelte";
   import {
     DEFAULT_SETTINGS,
     FPS_OPTIONS,
@@ -30,7 +31,8 @@
   const SETTINGS_KEY = "abretela.roomSettings";
 
   let code = $state("");
-  let joinPassword = $state("");
+  /** O link não trouxe a senha: o modal pede (com o erro da última tentativa). */
+  let askPassword = $state<{ error: string | null } | null>(null);
   let roomPassword = $state("");
   let busy = $state<string | null>(null);
   let error = $state<string | null>(null);
@@ -39,9 +41,8 @@
   let settings = $state<RoomSettings>(loadJson(SETTINGS_KEY, DEFAULT_SETTINGS));
 
   const trimmedName = $derived(prefs.name);
-  // o convite (link) já traz a senha
+  // o link do túnel já traz a senha; o do servidor próprio, não (o modal pede)
   const invite = $derived(parseInvite(code));
-  const inviteHasPassword = $derived(!!invite?.password);
 
   // resumo das opções da sala, mostrado só quando fogem do padrão
   const customized = $derived(
@@ -81,7 +82,7 @@
       showOptions = false;
       code = l;
       error = null;
-      if (!busy && parseInvite(l)?.password) joinRoom();
+      if (!busy && parseInvite(l)) joinRoom();
     });
   });
 
@@ -130,18 +131,19 @@
     }
   }
 
-  async function joinRoom(e?: SubmitEvent) {
-    e?.preventDefault();
+  /** Entra pelo link; sem senha no link (e sem `typed`), abre o modal. */
+  async function joinRoom(typed?: string) {
     error = null;
     if (!invite) {
       error = t("invalidCode");
       return;
     }
-    const password = invite.password ?? joinPassword.trim();
+    const password = typed ?? invite.password;
     if (!password) {
-      error = t("enterPassword");
+      askPassword = { error: null };
       return;
     }
+    askPassword = null;
     busy = t("connecting");
     try {
       const client = new RoomClient(invite.ws, trimmedName, password, { nativeSend: prefs.nativeSend });
@@ -150,8 +152,10 @@
       });
       onenter({ client, room: invite.room, password, isHost: false });
     } catch (e) {
-      error = errText(e);
       busy = null;
+      // senha errada: pede de novo no modal
+      if (e instanceof WrongPasswordError) askPassword = { error: errText(e) };
+      else error = errText(e);
     }
   }
 </script>
@@ -238,17 +242,14 @@
 
       <div class="divider"><span>{t("or")}</span></div>
 
-      <form class="join" onsubmit={joinRoom}>
+      <form
+        class="join"
+        onsubmit={(e) => {
+          e.preventDefault();
+          joinRoom();
+        }}
+      >
         <input bind:value={code} placeholder={t("invitePlaceholder")} disabled={!!busy} spellcheck="false" />
-        {#if !inviteHasPassword}
-          <input
-            class="password"
-            type="password"
-            bind:value={joinPassword}
-            placeholder={t("password")}
-            disabled={!!busy}
-          />
-        {/if}
         <button class="btn" disabled={!code.trim() || !!busy}>{t("join")}</button>
       </form>
     {/if}
@@ -263,6 +264,15 @@
 
   <Credits />
 </div>
+
+{#if askPassword && invite}
+  <PasswordModal
+    room={roomLabel(invite.room)}
+    error={askPassword.error}
+    onsubmit={(password) => joinRoom(password)}
+    oncancel={() => (askPassword = null)}
+  />
+{/if}
 
 {#if showSettings}
   <SettingsPage onclose={() => (showSettings = false)} />
@@ -400,10 +410,6 @@
   .join input {
     flex: 1;
     min-width: 0;
-  }
-
-  .join input.password {
-    flex: 0 0 96px;
   }
 
   .home-identity {

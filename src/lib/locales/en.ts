@@ -128,6 +128,8 @@ export const en: Messages = {
   invalidCode: "Invalid invite.",
   enterPassword: "Enter the room password.",
   wrongPassword: "Wrong password.",
+  passwordTitle: "Room password",
+  passwordHint: "The link to \"{room}\" has no password. Type the password you were given.",
   connectFailed: "Could not connect to the room. Check the invite.",
 
   checkingUpdates: "Checking for updates...",

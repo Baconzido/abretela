@@ -128,6 +128,8 @@ export const ko: Messages = {
   invalidCode: "잘못된 초대입니다.",
   enterPassword: "방 비밀번호를 입력하세요.",
   wrongPassword: "비밀번호가 틀렸습니다.",
+  passwordTitle: "방 비밀번호",
+  passwordHint: "\"{room}\" 링크에는 비밀번호가 없습니다. 전달받은 비밀번호를 입력하세요.",
   connectFailed: "방에 연결할 수 없습니다. 초대를 확인하세요.",
 
   checkingUpdates: "업데이트 확인 중...",

@@ -127,6 +127,8 @@ export const zh: Messages = {
   invalidCode: "邀请无效。",
   enterPassword: "请输入房间密码。",
   wrongPassword: "密码错误。",
+  passwordTitle: "房间密码",
+  passwordHint: "“{room}”的链接里没有密码。请输入别人告诉你的密码。",
   connectFailed: "无法连接到房间，请检查邀请。",
 
   checkingUpdates: "正在检查更新...",

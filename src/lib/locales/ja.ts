@@ -128,6 +128,8 @@ export const ja: Messages = {
   invalidCode: "無効な招待です。",
   enterPassword: "ルームのパスワードを入力してください。",
   wrongPassword: "パスワードが違います。",
+  passwordTitle: "ルームのパスワード",
+  passwordHint: "「{room}」のリンクにはパスワードが含まれていません。教えてもらったパスワードを入力してください。",
   connectFailed: "ルームに接続できませんでした。招待を確認してください。",
 
   checkingUpdates: "アップデートを確認しています...",

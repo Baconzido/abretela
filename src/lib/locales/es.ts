@@ -128,6 +128,8 @@ export const es: Messages = {
   invalidCode: "Invitación no válida.",
   enterPassword: "Escribe la contraseña de la sala.",
   wrongPassword: "Contraseña incorrecta.",
+  passwordTitle: "Contraseña de la sala",
+  passwordHint: "El enlace de \"{room}\" no trae la contraseña. Escribe la contraseña que te pasaron.",
   connectFailed: "No se pudo conectar a la sala. Revisa la invitación.",
 
   checkingUpdates: "Buscando actualizaciones...",

@@ -129,6 +129,8 @@ export const pt = {
   invalidCode: "Convite inválido.",
   enterPassword: "Digite a senha da sala.",
   wrongPassword: "Senha incorreta.",
+  passwordTitle: "Senha da sala",
+  passwordHint: "O link de \"{room}\" não traz a senha. Digite a senha que te passaram.",
   connectFailed: "Não foi possível conectar à sala. Confira o convite.",
 
   // atualização
