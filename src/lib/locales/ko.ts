@@ -166,6 +166,7 @@ export const ko: Messages = {
   webNotOpened: "열리지 않나요? 앱이 설치되어 있지 않을 수 있습니다.",
   webNoApp: "앱이 없나요?",
   webDownloadWin: "Windows용 다운로드",
+  webDownloadMac: "Mac용 다운로드",
   webMobileHint: "휴대폰에서는 보기만 할 수 있습니다. 방송하려면 컴퓨터에서 앱을 사용하세요.",
   webShareHint: "화면을 방송하려면 앱을 다운로드하세요.",
   webPickHint: "목록에서 볼 화면을 고르세요.",

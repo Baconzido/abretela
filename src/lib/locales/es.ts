@@ -166,6 +166,7 @@ export const es: Messages = {
   webNotOpened: "¿No se abrió? Tal vez la app no esté instalada.",
   webNoApp: "¿No tienes la app?",
   webDownloadWin: "Descargar para Windows",
+  webDownloadMac: "Descargar para Mac",
   webMobileHint: "En el celular solo puedes ver. Para transmitir, usa la app en una computadora.",
   webShareHint: "Para transmitir tu pantalla, descarga la app.",
   webPickHint: "Elige una pantalla de la lista para ver.",

@@ -167,6 +167,7 @@ export const pt = {
   webNotOpened: "Não abriu? Talvez o app não esteja instalado.",
   webNoApp: "Não tem o app?",
   webDownloadWin: "Baixar para Windows",
+  webDownloadMac: "Baixar para Mac",
   webMobileHint: "Pelo celular você só assiste. Para transmitir, use o app no computador.",
   webShareHint: "Para transmitir a sua tela, baixe o app.",
   webPickHint: "Escolha uma tela na lista para assistir.",

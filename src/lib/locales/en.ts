@@ -166,6 +166,7 @@ export const en: Messages = {
   webNotOpened: "Didn't open? Maybe the app isn't installed.",
   webNoApp: "Don't have the app?",
   webDownloadWin: "Download for Windows",
+  webDownloadMac: "Download for Mac",
   webMobileHint: "On the phone you can only watch. To share, use the app on a computer.",
   webShareHint: "To share your screen, download the app.",
   webPickHint: "Pick a screen from the list to watch.",

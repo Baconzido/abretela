@@ -166,6 +166,7 @@ export const ja: Messages = {
   webNotOpened: "開きませんか？アプリがインストールされていないかもしれません。",
   webNoApp: "アプリをお持ちでないですか？",
   webDownloadWin: "Windows 版をダウンロード",
+  webDownloadMac: "Mac 版をダウンロード",
   webMobileHint: "スマホでは視聴のみです。配信するにはパソコンのアプリを使ってください。",
   webShareHint: "画面を配信するにはアプリをダウンロードしてください。",
   webPickHint: "一覧から見たい画面を選んでください。",

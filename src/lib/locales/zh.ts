@@ -165,6 +165,7 @@ export const zh: Messages = {
   webNotOpened: "没有打开？可能没有安装应用。",
   webNoApp: "还没有应用？",
   webDownloadWin: "下载 Windows 版",
+  webDownloadMac: "下载 Mac 版",
   webMobileHint: "在手机上只能观看。要共享屏幕，请在电脑上使用应用。",
   webShareHint: "要共享你的屏幕，请下载应用。",
   webPickHint: "从列表中选一个屏幕来观看。",
