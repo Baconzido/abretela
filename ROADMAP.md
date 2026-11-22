@@ -460,16 +460,16 @@ está hoje (`tunnel::Tunnel`), e falam o mesmo protocolo de sala (`join`,
 
 - **Cada servidor é uma sala só**, a mesma tela de hoje (quem está, quem está ao
   vivo, assistir). Não há canais dentro do servidor.
-- **Tela inicial parecida com a lista de servidores do Discord:** os servidores
-  de que a pessoa faz parte (nome, ícone com a inicial, quantas pessoas e quantas
-  ao vivo agora), com um clique para entrar. Ao lado, as ações de hoje: criar uma
-  sala pelo túnel e entrar por um link. O dono vê os próprios servidores com a
-  opção de administrar.
-- **Senha:** o link do servidor não leva a senha (no túnel continua levando).
-  Na primeira vez a pessoa digita; o app guarda a senha daquele servidor e nas
-  próximas entra direto. Se o dono mudar a senha, a guardada falha e o app pede
-  de novo. Guardar é aceitável: essa senha só abre a sala. No navegador ela fica
-  no `localStorage` dele.
+- **Tela inicial com a barra de servidores do Discord:** ícones à esquerda
+  (iniciais do nome), um clique para entrar; passar o mouse mostra o nome e
+  quantas pessoas e quantas ao vivo; selo vermelho com quantos ao vivo e coroa
+  nos que a pessoa administra; botão direito para copiar o link ou tirar da
+  lista. Cabe uma lista grande (rola). No meio, as ações de hoje: criar uma
+  sala pelo túnel e entrar por um link.
+- **Senha:** o link do servidor não leva a senha (no túnel continua levando), e
+  o app **pede a senha toda vez** (decidido em novembro de 2026, por
+  segurança): a lista guarda só o endereço e o nome. O dono entra pela chave de
+  administrador, sem senha.
 - **Quem é o dono:** a chave de administrador (abaixo), nunca o nome, o IP ou a
   conta da Cloudflare. O app do dono manda a chave ao conectar; o Worker compara
   com o hash que guarda e marca aquela conexão como dona. Depois: chaves de
@@ -595,10 +595,11 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
   é o mesmo `RoomClient` nos dois modos: o servidor fala o protocolo do túnel e
   o link vira `wss://<servidor>/ws`. A tela inicial tem só o campo do link (a
   senha que faltar vem no `PasswordModal`) e, abaixo, a lista "Seus servidores"
-  (`ServerList.svelte`, `lib/servers.ts`): os que este PC administra (coroa;
-  entra como dono pela chave de administrador, `selfhost_admin_key`) e os em
-  que já entrou (senha guardada em `joinedServers`, tirar da lista), com
-  pessoas e ao vivo pelo `/api/info`. Na sinalização: `ping` a cada 30 s
+  (`ServerRail.svelte`, `lib/servers.ts`), uma barra de ícones à esquerda: os
+  que este PC administra (coroa; entra como dono pela chave de administrador,
+  `selfhost_admin_key`) e os em que já entrou (`joinedServers`, só endereço e
+  nome; a senha é pedida toda vez), com pessoas e ao vivo pelo `/api/info` a
+  cada minuto. Na sinalização: `ping` a cada 30 s
   (`PING_MS`; o túnel ignora), recusas do servidor (`banned`,
   `not-configured`, `too-many-attempts`, `room-full`) viram `RoomRefusedError`
   e não tentam de novo, `join` com `admin`. O `RoomClient` guarda `server`

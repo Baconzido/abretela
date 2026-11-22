@@ -13,32 +13,31 @@ const owned: OwnedServer = {
 };
 
 describe("servidores em que entrei", () => {
-  it("lembra com a senha, o mais recente no topo, sem repetir", () => {
-    let list = remember([], { url: "https://a.workers.dev", name: "A", password: "1" });
-    list = remember(list, { url: "https://b.workers.dev", name: "B", password: "2" });
-    list = remember(list, { url: "https://A.workers.dev/", name: "A2", password: "3" });
+  it("lembra o mais recente no topo, sem repetir", () => {
+    let list = remember([], { url: "https://a.workers.dev", name: "A" });
+    list = remember(list, { url: "https://b.workers.dev", name: "B" });
+    list = remember(list, { url: "https://A.workers.dev/", name: "A2" });
     expect(list).toEqual([
-      { url: "https://A.workers.dev/", name: "A2", password: "3" },
-      { url: "https://b.workers.dev", name: "B", password: "2" },
+      { url: "https://A.workers.dev/", name: "A2" },
+      { url: "https://b.workers.dev", name: "B" },
     ]);
     expect(forget(list, "https://a.workers.dev")).toHaveLength(1);
   });
 
-  it("lê o que foi salvo e descarta o inválido", () => {
-    expect(loadJoined([{ url: "https://a.workers.dev", name: "A", password: "1" }, { url: "javascript:x" }, null])).toEqual([
-      { url: "https://a.workers.dev", name: "A", password: "1" },
-    ]);
+  it("nunca guarda senha: as de versões anteriores somem ao ler", () => {
+    const saved = [{ url: "https://a.workers.dev", name: "A", password: "1" }, { url: "javascript:x" }, null];
+    expect(loadJoined(saved)).toEqual([{ url: "https://a.workers.dev", name: "A" }]);
     expect(loadJoined("lixo")).toEqual([]);
   });
 
   it("na lista, os meus primeiro, e o meu não aparece de novo como 'entrei'", () => {
     const entries = serverEntries([owned], [
-      { url: owned.url + "/", name: "Meu (velho)", password: "x" },
-      { url: "https://outro.workers.dev", name: "Outro", password: "y" },
+      { url: owned.url + "/", name: "Meu (velho)" },
+      { url: "https://outro.workers.dev", name: "Outro" },
     ]);
-    expect(entries.map((e) => [e.name, !!e.owned, e.password])).toEqual([
-      ["Meu", true, null],
-      ["Outro", false, "y"],
+    expect(entries.map((e) => [e.name, !!e.owned])).toEqual([
+      ["Meu", true],
+      ["Outro", false],
     ]);
     expect(sameServer("https://X.dev/", "https://x.dev")).toBe(true);
   });

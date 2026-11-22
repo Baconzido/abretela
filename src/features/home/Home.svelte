@@ -7,7 +7,7 @@
   import { forget, remember, sameServer, serverEntries, type ServerEntry } from "../../lib/servers";
   import { selfhost } from "../../lib/selfhost";
   import PasswordModal from "../../ui/PasswordModal.svelte";
-  import ServerList from "./ServerList.svelte";
+  import ServerRail from "./ServerRail.svelte";
   import {
     DEFAULT_SETTINGS,
     FPS_OPTIONS,
@@ -153,18 +153,13 @@
       return;
     }
     const known = servers.find((e) => sameServer(e.url, invite.room));
-    enter({
-      room: invite.room,
-      ws: invite.ws,
-      password: invite.password ?? known?.password ?? null,
-      owned: known?.owned ?? null,
-    });
+    enter({ room: invite.room, ws: invite.ws, password: invite.password, owned: known?.owned ?? null });
   }
 
-  /** Entra num servidor da lista (com a senha guardada, ou como dono). */
+  /** Entra num servidor da lista: pede a senha (ou entra como dono, pela chave). */
   function joinServer(entry: ServerEntry) {
     const url = entry.url.replace(/\/+$/, "");
-    enter({ room: url, ws: `${url.replace(/^http/, "ws")}/ws`, password: entry.password, owned: entry.owned });
+    enter({ room: url, ws: `${url.replace(/^http/, "ws")}/ws`, password: null, owned: entry.owned });
   }
 
   async function enter(target: Target, typed?: string) {
@@ -186,9 +181,9 @@
       await client.connect((n) => {
         if (n > 1) busy = t("connectingAttempt", { n });
       });
-      // servidor próprio de outra pessoa: guarda a senha para entrar direto da próxima vez
-      if (client.server && !target.owned && password) {
-        prefs.joinedServers = remember(prefs.joinedServers, { url: target.room, name: client.server.name, password });
+      // servidor próprio de outra pessoa: fica na lista (sem a senha, que é pedida toda vez)
+      if (client.server && !target.owned) {
+        prefs.joinedServers = remember(prefs.joinedServers, { url: target.room, name: client.server.name });
       }
       onenter({ client, room: target.room, password: password ?? "", isHost: false });
     } catch (e) {
@@ -204,7 +199,11 @@
   }
 </script>
 
-<div class="home">
+{#if servers.length}
+  <ServerRail entries={servers} disabled={!!busy} onjoin={joinServer} onforget={forgetServer} />
+{/if}
+
+<div class="home" class:with-rail={servers.length > 0}>
   <button class="icon-btn home-settings" title={t("settings")} onclick={() => (showSettings = true)}>
     <Icon name="settings" size={22} />
   </button>
@@ -306,10 +305,6 @@
     {/if}
   </div>
 
-  {#if servers.length && !showOptions}
-    <ServerList entries={servers} disabled={!!busy} onjoin={joinServer} onforget={forgetServer} />
-  {/if}
-
   <Credits />
 </div>
 
@@ -339,6 +334,11 @@
     gap: 28px;
     padding: 32px 16px 20px;
     overflow-y: auto;
+  }
+
+  /* espaço da barra de servidores à esquerda */
+  .home.with-rail {
+    padding-left: calc(72px + 16px);
   }
 
   .home-settings {
