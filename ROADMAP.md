@@ -324,6 +324,13 @@ a manda ao servidor), então ninguém precisa digitar.
 
 ## 3. Linux e Mac
 
+> **Novembro de 2026: Mac e Linux saem juntos**, na mesma versão. O PR do Mac
+> feito por um colaborador ([beqm/abretela#1](https://github.com/beqm/abretela/pull/1),
+> Apple Silicon: ScreenCaptureKit, VideoToolbox, `.dmg`, CI e release em matriz)
+> entra quando o Linux estiver pronto, não antes. Antes de juntar: resolver os
+> conflitos com o que entrou na 0.7.0 (servidor próprio, navegador, TURN) e testar
+> no Windows à mão, porque ele muda o `release.yml` e o atualizador.
+
 Depende da fase 4 e do envio nativo (seção 2). O que hoje é só do Windows:
 
 | Parte | Windows (hoje) | Mac | Linux |
@@ -697,26 +704,18 @@ sala e não depende da seção 6.
 
 ---
 
-## Pendências do caso do Eliaga
+## Caso do Eliaga (resolvido em novembro de 2026)
 
-Ninguém consegue assistir a tela dele; ele assiste todo mundo. Outra pessoa na
-mesma internet funciona, e o firewall desligado não muda nada: não é rede nem
-firewall.
-
-- Ele passou para o Windows 11 e continua sem funcionar. Cai a suspeita de
-  sobrecarga por falta de limite de fps no Windows 10; as correções só para o
-  Windows 10 (limitar fps, capturar no tamanho do espectador) ficam de lado.
-- Próximo passo: diagnóstico detalhado no log quando a conexão falha (etapa
-  ICE ou DTLS, pares de rota testados e respostas, portas públicas) e pegar o
-  log dos dois lados numa tentativa. Os logs de rede agora ficam todos em
-  `src/lib/transport/diagnostics.ts`.
-- Se for algo na ponte de frames dele, o envio nativo (seção 2) elimina a ponte.
+Ninguém conseguia assistir a tela dele, e ele assistia todo mundo. O log com o
+diagnóstico de rede mostrou que os roteadores dos dois lados trocavam a porta
+pública conforme o destino (NAT simétrico), então a conexão direta não saía. O
+TURN do anfitrião (seção 4.4) resolveu: com o repasse, a tela dele abre.
 
 ---
 
 ## Outras ideias levantadas (sem ordem)
 
-- **TURN** para quem não conecta direto: ver a seção 4.
+- **TURN** para quem não conecta direto: feito (seção 4.4 e servidor próprio).
 - Mostrar **quem está te assistindo** enquanto você transmite.
 - **Notificação do Windows** quando alguém abre a tela, com clique para assistir.
 - **Atalhos globais** (ex.: abrir/fechar sua tela sem sair do jogo).
