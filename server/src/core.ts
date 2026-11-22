@@ -13,6 +13,8 @@ import {
   LIMITS,
   renewAt,
   SERVER_VERSION,
+  STALE_MS,
+  SWEEP_MS,
   TURN_LIFETIMES,
   TURN_RETRY_MS,
   TURN_REVOKE_GRACE_MS,
@@ -31,6 +33,8 @@ export interface Conn {
   close(code: number, reason: string): void;
   state(): ConnState;
   setState(state: ConnState): void;
+  /** Quando a Cloudflare respondeu o último `ping` desta conexão (ms), se já respondeu. */
+  lastPing(): number | null;
 }
 
 /** O que a sala precisa de quem a hospeda (o Durable Object, ou um falso nos testes). */
@@ -180,7 +184,27 @@ export class RoomCore {
     }
   }
 
+  /**
+   * Tira da sala quem ficou sem `ping` por mais de `STALE_MS`: a conexão caiu
+   * sem avisar e a Cloudflare não mandou o fechamento (um "fantasma").
+   */
+  async sweep() {
+    const now = this.host.now();
+    for (const { conn, peer } of this.peers()) {
+      const seen = Math.max(conn.lastPing() ?? 0, peer.joinedAt);
+      if (now - seen <= STALE_MS) continue;
+      this.host.log("info", `${peer.name} stopped answering; removing them from the room`);
+      await this.leave(conn, peer);
+      try {
+        conn.close(CLOSE.timeout, "no ping");
+      } catch {
+        // já fechado
+      }
+    }
+  }
+
   private async join(conn: Conn, msg: Record<string, unknown>) {
+    await this.sweep();
     const { ip } = conn.state();
     const ipHash = await sha256(ip);
     if ((await this.activeBans()).some((b) => b.ipHash === ipHash)) {
@@ -305,6 +329,7 @@ export class RoomCore {
 
   /** Renova as credenciais que vão vencer e revoga as antigas cujo prazo passou. */
   async alarm() {
+    await this.sweep();
     const now = this.host.now();
     const turn = this.host.turn;
     const pending = (await this.host.load<Pending[]>(KEY.revoke)) ?? [];
@@ -345,12 +370,15 @@ export class RoomCore {
         if (peer.turn) times.push(peer.turn.retryAt ?? renewAt(peer.turn.expiresAt, turnLifetime));
       }
     }
+    // com gente na sala, procura conexões mortas de tempos em tempos
+    if (this.peers().length) times.push(this.host.now() + SWEEP_MS);
     await this.host.setAlarm(times.length ? Math.min(...times) : null);
   }
 
   // ---------- HTTP (informações e administração) ----------
 
   async http(method: string, path: string, authorization: string | null, body: unknown): Promise<HttpResult> {
+    await this.sweep();
     if (method === "GET" && path === "/api/info") return { status: 200, body: await this.publicInfo() };
     if (!path.startsWith("/api/admin/")) return { status: 404, body: { error: "not-found" } };
 

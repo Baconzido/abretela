@@ -75,8 +75,18 @@ export function renewAt(expiresAt: number, lifetimeMinutes: number): number {
   return expiresAt - marginMinutes * 60_000;
 }
 
+/**
+ * O app manda `ping` a cada 30 s (a Cloudflare responde sem acordar a sala e
+ * anota a hora). Quem fica mais que isto sem ping caiu sem avisar (janela
+ * recarregada, internet que sumiu) e sai da sala.
+ */
+export const STALE_MS = 75_000;
+/** Com gente na sala, de quanto em quanto tempo procura conexões mortas. */
+export const SWEEP_MS = 60_000;
+
 /** Códigos de fechamento do WebSocket. */
 export const CLOSE = {
+  timeout: 4000,
   kicked: 4001,
   refused: 4003,
 } as const;

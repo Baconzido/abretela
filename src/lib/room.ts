@@ -46,6 +46,8 @@ export class RoomClient {
   /** Tela aberta na janela flutuante e a altura dela (continua visível com o app minimizado). */
   private pip: { id: string; height: number } | null = null;
   private onVisibility = () => this.watching.forEach((id) => this.sendView(id));
+  /** A janela vai fechar ou recarregar: sai direito, senão sobra um "fantasma" na sala. */
+  private onPageHide = () => this.leave();
   /** Servidores de repasse (TURN) do anfitrião, vindos no "welcome" (e renovados depois). */
   private iceServers: RTCIceServer[] = [];
   /** O que desligar ao sair da sala (ex.: a renovação do TURN do anfitrião). */
@@ -64,6 +66,7 @@ export class RoomClient {
     this.signaling = new Signaling(url, name, password, options.admin);
     this.signaling.onMessage = (msg) => this.handle(msg);
     this.signaling.onClosed = () => this.onClosed();
+    globalThis.addEventListener?.("pagehide", this.onPageHide);
     const host: TransportHost = {
       signal: (to, data) => this.signaling.signal(to, data),
       nameOf: (id) => this.nameOf(id),
@@ -125,6 +128,7 @@ export class RoomClient {
 
   private teardown() {
     this.cleanups.splice(0).forEach((fn) => fn());
+    globalThis.removeEventListener?.("pagehide", this.onPageHide);
     document.removeEventListener("visibilitychange", this.onVisibility);
     this.capture?.stop();
     this.capture = null;

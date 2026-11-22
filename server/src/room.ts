@@ -16,8 +16,9 @@ export type Env = {
   TURN_KEY_TOKEN?: string;
 };
 
-function wrap(ws: WebSocket): Conn {
+function wrap(ws: WebSocket, ctx: DurableObjectState): Conn {
   return {
+    lastPing: () => ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? null,
     send: (text) => ws.send(text),
     close: (code, reason) => ws.close(code, reason),
     state: () => (ws.deserializeAttachment() as ConnState | null) ?? { ip: "" },
@@ -33,7 +34,7 @@ export class Room extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
     const turn = env.TURN_KEY_ID && env.TURN_KEY_TOKEN ? new CloudflareTurn(env.TURN_KEY_ID, env.TURN_KEY_TOKEN) : null;
     const host: RoomHost = {
-      conns: () => ctx.getWebSockets().map(wrap),
+      conns: () => ctx.getWebSockets().map((ws) => wrap(ws, ctx)),
       load: (key) => ctx.storage.get(key),
       save: (key, value) => ctx.storage.put(key, value),
       now: () => Date.now(),
@@ -78,11 +79,11 @@ export class Room extends DurableObject<Env> {
       ws.close(1009, "message too big");
       return;
     }
-    await this.core.message(wrap(ws), message);
+    await this.core.message(wrap(ws, this.ctx), message);
   }
 
   async webSocketClose(ws: WebSocket, code: number) {
-    await this.core.closed(wrap(ws));
+    await this.core.closed(wrap(ws, this.ctx));
     try {
       ws.close(code === 1005 || code === 1006 ? 1000 : code, "bye");
     } catch {
@@ -91,7 +92,7 @@ export class Room extends DurableObject<Env> {
   }
 
   async webSocketError(ws: WebSocket) {
-    await this.core.closed(wrap(ws));
+    await this.core.closed(wrap(ws, this.ctx));
   }
 
   async alarm() {

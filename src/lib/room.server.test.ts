@@ -47,6 +47,7 @@ class FakeWS {
     this.state = { ip: nextIp ?? `198.51.100.${sockets.length + 1}` };
     sockets.push(this);
     this.conn = {
+      lastPing: () => Date.now(),
       send: (text) => setTimeout(() => this.readyState === 1 && this.onmessage?.({ data: text })),
       close: () => setTimeout(() => this.drop()),
       state: () => structuredClone(this.state),

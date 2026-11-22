@@ -163,16 +163,19 @@
   }
 
   async function enter(target: Target, typed?: string) {
+    // um clique duplo não pode abrir duas conexões (a segunda viraria um fantasma na sala)
+    if (busy) return;
     error = null;
+    busy = t("connecting");
     const password = typed ?? target.password;
     // o dono entra pela chave de administrador deste PC, sem senha
     const admin = !typed && target.owned ? await selfhost.adminKey(target.owned).catch(() => null) : null;
     if (!password && !admin) {
+      busy = null;
       askPassword = { target, error: null };
       return;
     }
     askPassword = null;
-    busy = t("connecting");
     try {
       const client = new RoomClient(target.ws, trimmedName, password ?? "", {
         nativeSend: prefs.nativeSend,

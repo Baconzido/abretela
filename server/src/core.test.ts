@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { RoomCore, validSettings, type Conn, type RoomHost } from "./core";
 import { sha256 } from "./crypto";
-import { CLOSE, TURN_REVOKE_GRACE_MS, type ConnState } from "./protocol";
+import { CLOSE, STALE_MS, SWEEP_MS, TURN_REVOKE_GRACE_MS, type ConnState } from "./protocol";
 import type { TurnApi } from "./turn";
 
 const ADMIN_KEY = "chave-do-dono-0123456789abcdef";
@@ -11,7 +11,15 @@ const ADMIN_KEY = "chave-do-dono-0123456789abcdef";
 class FakeConn implements Conn {
   sent: Record<string, unknown>[] = [];
   closed: { code: number; reason: string } | null = null;
-  constructor(private st: ConnState) {}
+  /** Desde quando parou de responder o ping (`null`: responde sempre). */
+  silentSince: number | null = null;
+  constructor(
+    private st: ConnState,
+    private clock: { now: number },
+  ) {}
+  lastPing() {
+    return this.silentSince ?? this.clock.now;
+  }
   send(text: string) {
     if (this.closed) throw new Error("closed");
     this.sent.push(JSON.parse(text));
@@ -72,7 +80,7 @@ function setup(withTurn = false) {
   const ready = sha256(ADMIN_KEY).then((h) => (host.adminKeyHash = h));
   let core = new RoomCore(host);
   const open = (ip = "203.0.113.1") => {
-    const c = new FakeConn({ ip });
+    const c = new FakeConn({ ip }, clock);
     conns.push(c);
     return c;
   };
@@ -201,6 +209,30 @@ describe("na sala", () => {
     expect(caio.last("welcome")).toMatchObject({ id: "3", peers: [{ name: "Ana" }, { name: "Bia" }] });
   });
 
+  it("quem para de responder o ping some da sala (conexão fantasma)", async () => {
+    const ana = await room.join("Ana");
+    const bia = await room.join("Bia");
+    bia.silentSince = room.clock.now; // a janela dela recarregou e o fechamento não chegou
+    room.clock.now += STALE_MS - 1000;
+    await room.core().alarm();
+    expect(ana.last("peer-left")).toBeUndefined(); // ainda dentro do prazo
+
+    room.clock.now += 2000;
+    await room.core().alarm();
+    expect(ana.last("peer-left")).toEqual({ type: "peer-left", id: "2" });
+    expect(bia.closed?.code).toBe(CLOSE.timeout);
+    // quem entra depois não vê o fantasma
+    const caio = await room.join("Caio");
+    expect(caio.last("welcome")).toMatchObject({ peers: [{ name: "Ana" }] });
+  });
+
+  it("procura fantasmas também quando alguém entra ou o app pede as informações", async () => {
+    const ana = await room.join("Ana");
+    ana.silentSince = room.clock.now;
+    room.clock.now += STALE_MS + 1000;
+    expect((await room.admin("GET", "/api/info")).body).toMatchObject({ people: 0 });
+  });
+
   it("responde ao ping (quando a Cloudflare não respondeu sozinha)", async () => {
     const c = room.open();
     await room.say(c, { type: "ping" });
@@ -303,8 +335,8 @@ describe("TURN por pessoa", () => {
     const bia = await room.join("Bia");
     expect(ana.last("welcome")).toMatchObject({ iceServers: [{ username: "user1", credential: "p1:3600" }] });
     expect(bia.last("welcome")).toMatchObject({ iceServers: [{ username: "user2" }] });
-    // alarme marcado para renovar 5 min antes de vencer
-    expect(room.alarms.at(-1)).toBe(room.clock.now + 55 * 60_000);
+    // com gente na sala, o alarme volta a cada minuto (procura conexões mortas)
+    expect(room.alarms.at(-1)).toBe(room.clock.now + SWEEP_MS);
   });
 
   it("renova antes de vencer, manda a nova só para a pessoa e revoga a velha depois", async () => {
@@ -315,12 +347,10 @@ describe("TURN por pessoa", () => {
     expect(ana.last("ice-servers")).toMatchObject({ iceServers: [{ username: "user3" }] });
     expect(bia.last("ice-servers")).toMatchObject({ iceServers: [{ username: "user4" }] });
     expect(room.turn!.revoked).toEqual([]); // ainda no prazo de troca
-    expect(room.alarms.at(-1)).toBe(room.clock.now + TURN_REVOKE_GRACE_MS);
 
     room.clock.now += TURN_REVOKE_GRACE_MS;
     await room.core().alarm();
     expect(room.turn!.revoked).toEqual(["user1", "user2"]);
-    expect(room.alarms.at(-1)).toBe(room.clock.now - TURN_REVOKE_GRACE_MS + 55 * 60_000);
   });
 
   it("revoga quando a pessoa sai ou é kikada", async () => {
@@ -345,7 +375,6 @@ describe("TURN por pessoa", () => {
     room.clock.now += 55 * 60_000;
     await room.core().alarm();
     expect(bia.last("ice-servers")).toBeUndefined();
-    expect(room.alarms.at(-1)).toBe(room.clock.now + 60_000);
     room.turn!.fail = false;
     room.clock.now += 60_000;
     await room.core().alarm();
