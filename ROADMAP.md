@@ -289,7 +289,8 @@ a manda ao servidor), então ninguém precisa digitar.
   e uma aba assistindo uma transmissão (WebView e nativa), como nos testes do
   envio nativo. Chrome, Edge, Firefox (H.264 pelo OpenH264 que ele baixa) e, se
   der, Safari/iPhone e Android.
-- [ ] **W7. Lançar** (0.6.0): CHANGELOG, PR `dev` → `main`, e só então a tag.
+- [ ] **W7. Lançar:** junto com a seção 6 (fase S6, versão 0.7.0). No servidor
+  próprio a página sai do Worker (arquivos estáticos), e não do PC do anfitrião.
 
 **Limites (ficam como estão):**
 - Só assistir. Transmitir pelo navegador daria (`getDisplayMedia`), mas pior
@@ -399,6 +400,10 @@ em Configurações; os espectadores não configuram nada.
 
 ### 4.5 Passar a sala para outra pessoa
 
+> **Novembro de 2026:** fica para depois. Com o servidor próprio (seção 6) a
+> sala não depende de anfitrião, então quem precisa que a sala continue usa ele.
+> Este plano vale só para o modo túnel, se um dia fizer falta.
+
 Ao sair, o anfitrião escolhe quem vira o novo anfitrião, e a sala continua.
 
 - Dá para fazer porque o vídeo não passa pelo servidor da sala: as conexões
@@ -424,6 +429,135 @@ Ao sair, o anfitrião escolhe quem vira o novo anfitrião, e a sala continua.
   já tinha (só credenciais temporárias ou as que já eram públicas na sala).
 - Fora do escopo por enquanto: o anfitrião cair sem passar a sala (aí a sala
   acaba, como hoje).
+
+---
+
+## 6. Servidor próprio (decidido em novembro de 2026)
+
+**Por quê:** um servidor de salas do próprio app (um Worker na conta do dono
+do projeto) resolveria passar o anfitrião, o link fixo e a página do navegador,
+mas a conta seria de quem mantém o app, e cresce com o app. Em vez disso, **cada
+pessoa pode ter o próprio servidor, na própria conta da Cloudflare**, montado e
+administrado só pelo app. Quem não quiser continua com o túnel, como hoje.
+
+### Os dois modos de sala
+
+| | Túnel (padrão, como hoje) | Servidor próprio |
+|---|---|---|
+| Onde a sala vive | no PC do anfitrião, pelo túnel | num Worker da conta do dono |
+| Anfitrião | quem criou; se sai, a sala acaba | não existe: a sala fica de pé sozinha |
+| Link | muda a cada sala | fixo, por sala |
+| TURN | o do anfitrião (seção 4.4), senha da sala toda | embutido no servidor, senha por pessoa |
+| Kikar | o anfitrião, pelo app | o dono, pelo app; revoga o TURN da pessoa |
+| Navegador | a página sai do PC do anfitrião | a página sai do Worker |
+| Custo | nenhum | o da conta do dono (plano grátis, abaixo) |
+
+Os dois ficam atrás do mesmo contrato no app (onde a sala vive), como o túnel já
+está hoje (`tunnel::Tunnel`), e falam o mesmo protocolo de sala (`join`,
+`welcome`, `peer-*`, `signal`, `ice-servers`), mais o que for de administração.
+
+### Montar o servidor pelo app, sem abrir a Cloudflare
+
+O dono cola **um token da API da Cloudflare** em Configurações e o app faz o
+resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
+
+- **Criar o token:** o app abre o painel já com o formulário preenchido
+  (`dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=...&name=AbreTela`).
+  Permissões: Workers Scripts (editar), Account Settings (ler) e Realtime
+  (editar, para a chave do TURN). O link preenche `workers_scripts` e
+  `account_settings`; para o Realtime não há chave curta documentada, então a
+  tela explica como marcar essa permissão. Conferir os nomes ao implementar.
+- **O que o app faz com o token** (API REST da Cloudflare, sem wrangler):
+  1. `GET /accounts`: acha a conta (se houver mais de uma, pergunta qual).
+  2. `GET /accounts/{id}/workers/subdomain`: o `<conta>.workers.dev`; se não
+     existir, cria.
+  3. `POST /accounts/{id}/calls/turn_keys`: cria a chave do TURN. A resposta traz
+     `uid` (o Key ID) e `secret` (o token), e o `secret` só aparece nessa hora.
+  4. Sobe os arquivos da página do navegador (`assets-upload-session`, depois
+     `workers/assets/upload`, que devolve o token de conclusão).
+  5. `PUT /accounts/{id}/workers/scripts/abretela`: o código do servidor
+     (multipart, `main_module`, `compatibility_date`), a classe da sala como
+     Durable Object com SQLite (`new_sqlite_classes`; o plano grátis só aceita
+     SQLite), os segredos (`secret_text`: chave do TURN e o hash da chave de
+     administrador) e os arquivos do passo 4.
+  6. `POST .../scripts/abretela/subdomain`: liga o endereço `workers.dev`.
+- O código do servidor vai dentro do app, já empacotado (esbuild no build). Cada
+  versão do app sabe a versão do servidor que espera; se a do Worker for mais
+  velha, o app oferece atualizar (passo 5 de novo).
+
+### Onde fica cada segredo
+
+- **Token da Cloudflare:** só no PC do dono, no Gerenciador de Credenciais do
+  Windows (não no `localStorage`). Nunca vai para o Worker nem para a sala.
+- **Chave do TURN:** só no Worker, como segredo. Nem o app guarda.
+- **Chave de administrador:** o app gera ao montar o servidor e guarda no
+  Gerenciador de Credenciais; o Worker guarda só o hash. É com ela que o app do
+  dono se identifica para administrar.
+- **Outro PC do dono:** cola o token de novo; o app acha o servidor que já
+  existe e troca a chave de administrador (`PUT .../secrets`).
+
+### O que o dono faz pelo app
+
+- Criar, renomear e apagar salas; mudar senha e limites de qualidade de cada
+  uma; copiar o link.
+- Ver quem está em cada sala, kikar e banir (por sessão; o banido não volta com
+  o mesmo link enquanto o ban durar).
+- Escolher quanto dura a senha do TURN (como na seção 4.4).
+- Atualizar o servidor quando o app pedir.
+- **Apagar o servidor:** `DELETE .../workers/scripts/abretela?force=true` (apaga
+  as salas e os dados delas) e `DELETE .../calls/turn_keys/{uid}`. Pede
+  confirmação, porque não tem volta.
+
+### Como o servidor funciona
+
+- Um Worker que recebe as conexões e um Durable Object por sala. A sala guarda
+  no SQLite o nome, o hash da senha, os limites e os banidos; quem está
+  conectado fica só na memória.
+- **Hibernação obrigatória** (API de hibernação de WebSocket): sala parada não
+  gasta tempo. O app manda um `ping` de texto e o Worker responde pela resposta
+  automática (`setWebSocketAutoResponse`), que não acorda a sala. O servidor
+  não manda pings, ao contrário do servidor do túnel.
+- **TURN por pessoa:** quem entra com a senha certa recebe uma credencial só
+  dela; um alarme do Durable Object manda outra antes de vencer
+  (`ice-servers`); ao sair ou ser kikada, a dela é revogada. O resto da troca
+  (ICE restart na mesma conexão) é o que já existe para a seção 4.4.
+- **Link:** `https://abretela.<conta>.workers.dev/r/<sala>#senha`. Conferir se o
+  convite das versões antigas aceita caminho; se não, a sala do servidor fica só
+  para a versão nova em diante.
+- **Contra abuso:** só o dono cria salas; limite de tentativas de senha por
+  `CF-Connecting-IP`; limite de pessoas por sala e de tamanho de mensagem.
+
+### Plano grátis da Cloudflare (páginas de 13 a 19/11/2026)
+
+- Workers: 100 mil requisições por dia; 10 ms de processador por requisição.
+- Durable Objects (só com SQLite): 100 mil requisições por dia e 13.000 GB-s de
+  tempo por dia (~28 h de uma sala acordada). Abrir um WebSocket conta 1
+  requisição; mensagens recebidas contam 20 por 1; enviadas e pings não contam.
+- SQLite: 5 milhões de linhas lidas e 100 mil gravadas por dia; 5 GB no total.
+- Arquivos estáticos (a página do navegador): grátis e sem limite.
+- **Passou do limite, para de funcionar até zerar, às 00:00 UTC (21:00 em
+  Brasília).** Não cobra. O app precisa dizer isso claramente quando acontecer e
+  sugerir o túnel até lá.
+- O que pode gerar conta é o TURN (1.000 GB por mês grátis, depois cobra por
+  uso). Para um grupo de amigos, o resto sobra com folga.
+
+### Fases (cada uma testada antes da próxima, tudo na `dev`)
+
+- [ ] **S1. Servidor.** Código do Worker e da sala (Durable Object), com o mesmo
+  protocolo do servidor do túnel, hibernação, TURN por pessoa, kikar e banir.
+  Testes rodando o Worker localmente.
+- [ ] **S2. Montar pelo app.** Token, conta, subdomínio, chave do TURN, subir o
+  Worker e os arquivos, segredos no Gerenciador de Credenciais. Atualizar e
+  apagar o servidor.
+- [ ] **S3. Entrar e criar salas no servidor.** O contrato "onde a sala vive"
+  com os dois modos; Home e Configurações escolhem o modo.
+- [ ] **S4. Administração.** Tela do dono: salas, pessoas, kikar e banir, senha,
+  limites, duração do TURN.
+- [ ] **S5. Kikar no túnel.** O anfitrião kika pelo app; a senha do TURN
+  continua sendo da sala inteira nesse modo.
+- [ ] **S6. Assistir pelo navegador** (seção 5), nos dois modos: no servidor a
+  página sai do Worker; no túnel, do PC do anfitrião (W3).
+- [ ] **S7. Lançar** (0.7.0): CHANGELOG, PR `dev` → `main`, e só então a tag.
 
 ---
 
@@ -455,6 +589,6 @@ firewall.
   Picture-in-Picture do navegador, que mostra `tauri.localhost` no topo.
 - Indicador de fps e atraso reais em cada tela.
 - Mensagens de erro mais claras (túnel, captura).
-- Anfitrião poder remover alguém da sala.
+- Anfitrião poder remover alguém da sala: entrou na seção 6 (S4 e S5).
 - SFU (Cloudflare Realtime ou LiveKit) só se as salas crescerem além de ~10
   pessoas transmitindo ao mesmo tempo.
