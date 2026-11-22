@@ -562,9 +562,18 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
 
 ### Fases (cada uma testada antes da próxima, tudo na `dev`)
 
-- [ ] **S1. Servidor.** Código do Worker e da sala (Durable Object), com o mesmo
-  protocolo do servidor do túnel, hibernação, TURN por pessoa, kikar e banir.
-  Testes rodando o Worker localmente.
+- [x] **S1. Servidor** (feito em novembro de 2026). Pasta `server/`: o Worker
+  (`index.ts`), a sala como Durable Object (`room.ts`) e a lógica sem nada da
+  Cloudflare (`core.ts`, testada no Node com WebSockets, banco, relógio e TURN
+  falsos). Mesmo protocolo do túnel, mais: `welcome` com `owner`, `room` e
+  `version`; `kick` (só o dono); `kicked`, `room` e `settings` do servidor
+  para a sala; erros `not-configured`, `banned`, `too-many-attempts` e
+  `room-full`. Administração por HTTP com a chave (`/api/admin/room`, `kick`,
+  `unban`) e `/api/info` público. Ban pelo hash do endereço, por tempo. Senha
+  da sala com PBKDF2. Teste de ponta a ponta com o `wrangler dev`:
+  `node server/scripts/smoke.mjs <url> <chave>`. Para rodar localmente, a
+  chave de teste vai em `server/.dev.vars` (`ADMIN_KEY_HASH=<sha256>`, fora do
+  git).
 - [ ] **S2. Montar pelo app.** Token, conta, subdomínio, chave do TURN, subir o
   Worker e os arquivos, segredos no Gerenciador de Credenciais. Atualizar e
   apagar o servidor.
