@@ -269,6 +269,8 @@ export const ko: Messages = {
   refresh: "새로고침",
   searching: "찾는 중...",
   nothingFound: "찾은 것이 없습니다.",
+  systemPicks: "‘화면 열기’를 누르면 공유할 화면이나 창을 시스템이 묻습니다.",
+  screenOrWindow: "화면 또는 창",
   screenPermission: "AbreTela가 화면을 캡처하려면 허용이 필요합니다. 시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹음에서 허용한 뒤 앱을 다시 열어 주세요.",
   screenPermissionAllow: "허용",
   noPreview: "미리보기 없음",

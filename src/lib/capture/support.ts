@@ -19,3 +19,15 @@ export const shouldSendNatively = (preference: boolean) => preference || !canSen
  */
 export const canReceiveInWebView = () =>
   typeof (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection !== "undefined";
+
+/**
+ * É o sistema que escolhe a tela ou a janela (Linux, pelo portal)? Então a
+ * lista traz uma fonte só, do tipo "system", e o app não tem o que mostrar
+ * para escolher: devolve essa fonte. Senão, `null`.
+ */
+export function systemPickedSource<S extends { kind: string }>(sources: S[]): S | null {
+  return sources.length === 1 && sources[0].kind === "system" ? sources[0] : null;
+}
+
+/** A captura não começou porque a pessoa fechou a janela do sistema sem escolher? */
+export const isShareCancelled = (error: unknown) => String(error) === "cancelled";

@@ -473,7 +473,7 @@ pub struct PortalSource;
 
 impl VideoSource for PortalSource {
     fn list(&self) -> Vec<Source> {
-        vec![Source { id: PORTAL.into(), kind: "screen", title: "Screen or window".into(), app: String::new() }]
+        vec![Source { id: PORTAL.into(), kind: "system", title: "Screen or window".into(), app: String::new() }]
     }
 
     fn thumbnail(&self, _id: &str) -> Option<String> {

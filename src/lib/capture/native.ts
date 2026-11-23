@@ -15,7 +15,8 @@ declare class MediaStreamTrackGenerator extends MediaStreamTrack {
 
 export type Source = {
   id: string;
-  kind: "screen" | "window";
+  /** "system": o próprio sistema pergunta a tela ou a janela ao começar (Linux). */
+  kind: "screen" | "window" | "system";
   title: string;
   app: string;
 };

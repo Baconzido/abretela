@@ -157,7 +157,7 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
 /// frames direto para `sink` (sem o WebSocket).
 #[cfg(test)]
 pub fn start_video_for_test(sink: Arc<dyn FrameSink>, height: u32, fps: u32) -> (Arc<AtomicBool>, contracts::RunningVideo) {
-    let screen = list_sources().into_iter().find(|s| s.kind == "screen").expect("a screen").id;
+    let screen = list_sources().into_iter().find(|s| matches!(s.kind, "screen" | "system")).expect("a screen").id;
     let stop = Arc::new(AtomicBool::new(false));
     let video = VIDEO.start(&screen, VideoConfig { max_height: height, fps, gpu: true }, sink, stop.clone()).unwrap();
     (stop, video)

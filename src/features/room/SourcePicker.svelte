@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { capturePermission, getThumbnail, listSources, type Source } from "../../lib/capture/native";
+  import { systemPickedSource } from "../../lib/capture/support";
   import {
     allowedFps,
     allowedHeights,
@@ -45,7 +46,9 @@
     { value: "window" as const, label: t("apps") },
     { value: "screen" as const, label: t("screens") },
   ]);
-  const selectedSource = $derived(sources.find((s) => s.id === selected));
+  /** No Linux é o sistema que pergunta a tela ou a janela: não há o que listar. */
+  const system = $derived(systemPickedSource(sources));
+  const selectedSource = $derived(system ?? sources.find((s) => s.id === selected));
 
   const titleOf = (s: Source) => (s.kind === "screen" ? t("screenN", { n: s.title }) : s.title);
 
@@ -87,15 +90,24 @@
   <div class="modal picker">
     <header class="modal-head">
       <h2>{switching ? t("switchScreenTitle") : t("shareTitle")}</h2>
-      <Segmented options={tabs} value={tab} onchange={(v) => (tab = v)} />
+      {#if !system}
+        <Segmented options={tabs} value={tab} onchange={(v) => (tab = v)} />
+      {/if}
       <div class="spacer"></div>
-      <button class="icon-btn" title={t("refresh")} onclick={refresh}><Icon name="refresh" /></button>
+      {#if !system}
+        <button class="icon-btn" title={t("refresh")} onclick={refresh}><Icon name="refresh" /></button>
+      {/if}
       <button class="icon-btn" title={t("close")} onclick={oncancel}><Icon name="x" /></button>
     </header>
 
     <div class="sources">
       {#if loading}
         <div class="picker-empty"><span class="spinner"></span> {t("searching")}</div>
+      {:else if system}
+        <div class="picker-empty system">
+          <span class="muted"><Icon name="monitor" size={40} /></span>
+          <span class="muted">{t("systemPicks")}</span>
+        </div>
       {:else if !allowed}
         <div class="picker-empty permission">
           <span class="muted">{t("screenPermission")}</span>
@@ -141,7 +153,7 @@
       </div>
       <label class="check">
         <input type="checkbox" bind:checked={audio} />
-        {tab === "window" ? t("appAudio") : t("systemAudio")}
+        {tab === "window" && !system ? t("appAudio") : t("systemAudio")}
       </label>
       <div class="spacer"></div>
       <button class="btn" onclick={oncancel}>{t("cancel")}</button>
@@ -191,7 +203,8 @@
     padding: 40px;
   }
 
-  .picker-empty.permission {
+  .picker-empty.permission,
+  .picker-empty.system {
     flex-direction: column;
     text-align: center;
     gap: 16px;

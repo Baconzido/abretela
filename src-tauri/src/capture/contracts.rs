@@ -21,7 +21,8 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 #[derive(Serialize)]
 pub struct Source {
     pub id: String,
-    /// "screen" ou "window".
+    /// "screen" ou "window"; "system" quando é o próprio sistema que pergunta
+    /// a tela ou a janela ao começar (Linux), e então a lista só tem esta.
     pub kind: &'static str,
     pub title: String,
     pub app: String,
