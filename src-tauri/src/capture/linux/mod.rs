@@ -28,15 +28,18 @@ use ashpd::desktop::{
     screencast::{CursorMode, Screencast, SelectSourcesOptions, SourceType},
     PersistMode, ResponseError,
 };
-use frame::{pack_bgra, Layout, Pacer};
+use frame::{pack_part, visible_part, Layout, Pacer, Part};
 use futures_util::StreamExt;
 use pipewire::{self as pw, properties::properties, spa};
-use spa::param::video::{VideoFormat, VideoInfoRaw};
+use spa::{
+    buffer::meta::MetaVideoCrop,
+    param::video::{VideoFormat, VideoInfoRaw},
+};
 use std::{
     os::fd::OwnedFd,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Condvar, Mutex,
+        mpsc, Arc, Condvar, Mutex, OnceLock,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -86,34 +89,45 @@ async fn portal_session(stop: Arc<AtomicBool>, ready: mpsc::Sender<Result<Chosen
     let opened = async {
         let proxy = Screencast::new().await?;
         let session = proxy.create_session(Default::default()).await?;
-        // o cursor desenhado na imagem, quando o sistema sabe fazer isso
-        let cursor = match proxy.available_cursor_modes().await {
-            Ok(modes) if modes.contains(CursorMode::EMBEDDED) => CursorMode::EMBEDDED,
-            _ => CursorMode::HIDDEN,
+        let chosen = async {
+            // o cursor desenhado na imagem, quando o sistema sabe fazer isso
+            let cursor = match proxy.available_cursor_modes().await {
+                Ok(modes) if modes.contains(CursorMode::EMBEDDED) => CursorMode::EMBEDDED,
+                _ => CursorMode::HIDDEN,
+            };
+            proxy
+                .select_sources(
+                    &session,
+                    SelectSourcesOptions::default()
+                        .set_cursor_mode(cursor)
+                        .set_sources(SourceType::MONITOR | SourceType::WINDOW)
+                        .set_multiple(false)
+                        .set_restore_token(None)
+                        .set_persist_mode(PersistMode::DoNot),
+                )
+                .await?
+                .response()?;
+            let streams = proxy.start(&session, None, Default::default()).await?.response()?;
+            let stream = streams.streams().first().ok_or(ashpd::Error::NoResponse)?.to_owned();
+            let remote = proxy.open_pipe_wire_remote(&session, Default::default()).await?;
+            let kind = match stream.source_type() {
+                Some(SourceType::MONITOR) => "screen",
+                Some(SourceType::WINDOW) => "window",
+                _ => "source",
+            };
+            let size = stream.size().map_or(String::new(), |(w, h)| format!(", {w}x{h}"));
+            let what = format!("a {kind} chosen in the system's dialog{size}");
+            Ok::<_, ashpd::Error>(Chosen { node: stream.pipe_wire_node_id(), remote: Some(remote), what })
         };
-        proxy
-            .select_sources(
-                &session,
-                SelectSourcesOptions::default()
-                    .set_cursor_mode(cursor)
-                    .set_sources(SourceType::MONITOR | SourceType::WINDOW)
-                    .set_multiple(false)
-                    .set_restore_token(None)
-                    .set_persist_mode(PersistMode::DoNot),
-            )
-            .await?
-            .response()?;
-        let streams = proxy.start(&session, None, Default::default()).await?.response()?;
-        let stream = streams.streams().first().ok_or(ashpd::Error::NoResponse)?.to_owned();
-        let remote = proxy.open_pipe_wire_remote(&session, Default::default()).await?;
-        let kind = match stream.source_type() {
-            Some(SourceType::MONITOR) => "screen",
-            Some(SourceType::WINDOW) => "window",
-            _ => "source",
-        };
-        let size = stream.size().map_or(String::new(), |(w, h)| format!(", {w}x{h}"));
-        let what = format!("a {kind} chosen in the system's dialog{size}");
-        Ok::<_, ashpd::Error>((session, Chosen { node: stream.pipe_wire_node_id(), remote: Some(remote), what }))
+        match chosen.await {
+            Ok(chosen) => Ok((session, chosen)),
+            Err(e) => {
+                // desistir na janela do sistema não fecha a sessão; a conexão
+                // com o D-Bus dura o app todo, então ela ficaria aberta até lá
+                let _ = session.close().await;
+                Err(e)
+            }
+        }
     };
     let session = match opened.await {
         Ok((session, chosen)) => {
@@ -130,7 +144,8 @@ async fn portal_session(stop: Arc<AtomicBool>, ready: mpsc::Sender<Result<Chosen
         }
     };
 
-    // "parar de compartilhar" no próprio sistema fecha a sessão por lá
+    // "parar de compartilhar" no próprio sistema fecha a sessão por lá, e
+    // fechar a janela transmitida também
     let closed = session.receive_closed().await;
     let ended_by_system = async {
         match closed {
@@ -147,11 +162,43 @@ async fn portal_session(stop: Arc<AtomicBool>, ready: mpsc::Sender<Result<Chosen
     };
     tokio::select! {
         _ = ended_by_system => {
-            crate::log_info!("capture", "The system ended the screen sharing (stopped from the system's own indicator)");
+            crate::log_info!("capture", "The system ended the screen sharing (stopped from its own indicator, or what was shared was closed)");
             stop.store(true, Ordering::Relaxed);
         }
         _ = asked_to_stop => {
             let _ = session.close().await;
+        }
+    }
+}
+
+/// Onde rodam as conversas com o portal: um runtime só, que dura o app todo.
+///
+/// O `ashpd` abre a conexão com o D-Bus na primeira conversa e a reaproveita
+/// nas seguintes, e quem lê essa conexão são tarefas do runtime em que ela
+/// nasceu. Com um runtime por captura, essas tarefas morriam junto com a
+/// primeira captura e a segunda esperava para sempre uma resposta que
+/// ninguém lia: o sistema nem chegava a perguntar de novo.
+fn portal_runtime() -> Result<&'static tokio::runtime::Runtime, String> {
+    static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .thread_name("capture-portal-io")
+                .enable_all()
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+/// Roda uma conversa com o portal até o fim. Bloqueia: roda na própria thread.
+fn talk_to_portal(stop: Arc<AtomicBool>, ready: mpsc::Sender<Result<Chosen, String>>) {
+    match portal_runtime() {
+        Ok(runtime) => runtime.block_on(portal_session(stop, ready)),
+        Err(e) => {
+            let _ = ready.send(Err(format!("could not start the portal thread: {e}")));
         }
     }
 }
@@ -249,6 +296,8 @@ struct Frames {
     pacer: Pacer,
     /// Para avisar só uma vez de frames que não dá para ler.
     warned: bool,
+    /// O pedaço dos frames que está sendo enviado, para o log dizer quando muda.
+    part: Option<Part>,
 }
 
 impl Frames {
@@ -298,6 +347,12 @@ impl Frames {
         while let Some(newer) = stream.dequeue_buffer() {
             buffer = newer;
         }
+        // de uma janela, o sistema manda o frame do tamanho da tela e avisa
+        // onde ela está nele
+        let crop = buffer.find_meta::<MetaVideoCrop>().map(MetaVideoCrop::meta_region).filter(|r| r.is_valid()).map(|r| {
+            let (at, size) = (r.position(), r.size());
+            (at.x, at.y, size.width, size.height)
+        });
         let Some(data) = buffer.datas_mut().first_mut() else { return };
         let (size, stride, offset) = {
             let chunk = data.chunk();
@@ -318,9 +373,23 @@ impl Frames {
         let Some(bytes) = data.data().and_then(|d| d.get(offset..)) else {
             return self.warn_once("the frame is not in memory this app can read");
         };
+        let part = visible_part(w, h, crop);
+        if self.part != Some(part) {
+            // de uma janela que muda de tamanho isto muda a cada frame: só o
+            // primeiro recorte de cada captura vai para o log
+            if self.part.is_none() && (part.w, part.h) != (w, h) {
+                crate::log_info!(
+                    "capture",
+                    "The picture is a {}x{} part of each {w}x{h} frame (a window): sending only that part",
+                    part.w,
+                    part.h
+                );
+            }
+            self.part = Some(part);
+        }
         let mut bgra = self.mailbox.buffer();
-        if pack_bgra(bytes, stride, w, h, layout, &mut bgra) {
-            self.mailbox.put(Raw { bgra, w: w as u32, h: h as u32 });
+        if pack_part(bytes, stride, part, layout, &mut bgra) {
+            self.mailbox.put(Raw { bgra, w: part.w as u32, h: part.h as u32 });
         } else {
             self.mailbox.give_back(bgra);
             self.warn_once("a frame came smaller than its size says");
@@ -381,6 +450,27 @@ fn accepted_formats(fps: u32) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("could not describe the video formats: {e:?}"))
 }
 
+/// O pedido do aviso de recorte (`SPA_META_VideoCrop`) em cada frame.
+fn wanted_metadata() -> Result<Vec<u8>, String> {
+    use spa::{
+        param::ParamType,
+        pod::{serialize::PodSerializer, Object, Property, PropertyFlags, Value},
+        utils::{Id, SpaTypes},
+    };
+    let meta = |key: u32, value: Value| Property { key, flags: PropertyFlags::empty(), value };
+    let wanted = Object {
+        type_: SpaTypes::ObjectParamMeta.as_raw(),
+        id: ParamType::Meta.as_raw(),
+        properties: vec![
+            meta(spa::sys::SPA_PARAM_META_type, Value::Id(Id(spa::sys::SPA_META_VideoCrop))),
+            meta(spa::sys::SPA_PARAM_META_size, Value::Int(std::mem::size_of::<spa::sys::spa_meta_region>() as i32)),
+        ],
+    };
+    PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &Value::Object(wanted))
+        .map(|(cursor, _)| cursor.into_inner())
+        .map_err(|e| format!("could not describe the frame metadata: {e:?}"))
+}
+
 /// Recebe os frames do nó escolhido até `stop`. Bloqueia: roda na própria thread.
 fn receive_frames(chosen: Chosen, config: VideoConfig, sink: Arc<dyn FrameSink>, stop: Arc<AtomicBool>) -> Result<(), String> {
     let failed = |what: &'static str| move |e: pw::Error| format!("PipeWire: {what}: {e}");
@@ -412,6 +502,7 @@ fn receive_frames(chosen: Chosen, config: VideoConfig, sink: Arc<dyn FrameSink>,
         layout: None,
         pacer: Pacer::new(config.fps),
         warned: false,
+        part: None,
     };
     let _listener = stream
         .add_local_listener_with_user_data(frames)
@@ -430,9 +521,20 @@ fn receive_frames(chosen: Chosen, config: VideoConfig, sink: Arc<dyn FrameSink>,
                 _ => {}
             }
         })
-        .param_changed(|_, frames, id, param| {
+        .param_changed(|stream, frames, id, param| {
             if let (Some(param), true) = (param, id == spa::param::ParamType::Format.as_raw()) {
                 frames.format_changed(param);
+                // o sistema só avisa onde a janela está no frame para quem pede
+                match wanted_metadata() {
+                    Ok(wanted) => {
+                        if let Some(pod) = spa::pod::Pod::from_bytes(&wanted) {
+                            if let Err(e) = stream.update_params(&mut [pod]) {
+                                crate::log_warn!("capture", "Could not ask the system where a window is in its frames: {e}");
+                            }
+                        }
+                    }
+                    Err(e) => crate::log_warn!("capture", "{e}"),
+                }
             }
         })
         .process(|stream, frames| frames.frame(stream))
@@ -517,14 +619,7 @@ impl VideoSource for PortalSource {
         // a conversa com o portal é assíncrona e dura a captura toda
         let (ready, chosen) = mpsc::channel();
         let portal_stop = stop.clone();
-        let portal = spawn("capture-portal", move || {
-            match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-                Ok(runtime) => runtime.block_on(portal_session(portal_stop, ready)),
-                Err(e) => {
-                    let _ = ready.send(Err(format!("could not start the portal thread: {e}")));
-                }
-            }
-        })?;
+        let portal = spawn("capture-portal", move || talk_to_portal(portal_stop, ready))?;
         // espera a pessoa escolher (ou desistir) na janela do sistema
         let chosen = match chosen.recv() {
             Ok(Ok(chosen)) => chosen,
@@ -578,6 +673,53 @@ mod tests {
         fn audio(&self, _: Bytes) {}
         fn is_closed(&self) -> bool {
             false
+        }
+    }
+
+    /// O que uma conversa com o portal deixa rodando (a leitura da conexão
+    /// com o D-Bus) continua rodando depois que a thread dela acaba.
+    #[test]
+    fn what_a_portal_conversation_spawns_outlives_it() {
+        let (ticks, ticked) = mpsc::channel();
+        thread::spawn(move || {
+            portal_runtime().unwrap().block_on(async move {
+                tokio::spawn(async move {
+                    while ticks.send(()).is_ok() {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                });
+            })
+        })
+        .join()
+        .unwrap();
+        // a conversa acabou; o que chegar daqui em diante veio depois dela
+        while ticked.try_recv().is_ok() {}
+        assert!(ticked.recv_timeout(Duration::from_secs(5)).is_ok(), "the task died with the conversation");
+    }
+
+    /// Duas conversas seguidas com o portal, cada uma na sua thread, como em
+    /// duas capturas seguidas. A segunda tem de ter resposta como a primeira
+    /// (a conexão com o D-Bus é a mesma nas duas). Precisa de um D-Bus de
+    /// sessão; sem portal instalado a resposta é o erro de que ele não existe:
+    ///
+    /// ```sh
+    /// dbus-run-session -- cargo test portal_answers_twice -- --ignored --nocapture
+    /// ```
+    ///
+    /// Num desktop de verdade o sistema pergunta duas vezes o que compartilhar.
+    #[test]
+    #[ignore]
+    fn portal_answers_twice() {
+        for round in 1..=2 {
+            let (ready, answer) = mpsc::channel();
+            let stop = Arc::new(AtomicBool::new(false));
+            let flag = stop.clone();
+            let talk = thread::spawn(move || talk_to_portal(flag, ready));
+            let answer = answer.recv_timeout(Duration::from_secs(60));
+            println!("round {round}: {:?}", answer.as_ref().map(|a| a.as_ref().map(|c| c.what.clone())));
+            assert!(answer.is_ok(), "round {round}: the portal conversation never answered");
+            stop.store(true, Ordering::Relaxed);
+            talk.join().unwrap();
         }
     }
 

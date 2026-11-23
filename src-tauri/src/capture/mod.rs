@@ -129,7 +129,16 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
     let video = match VIDEO.start(id, config, sink.clone(), stop.clone()) {
         Ok(video) => video,
         Err(e) => {
-            log_error!("capture", "The system refused to start the capture: {e}");
+            // no Linux, fechar a janela do sistema sem escolher não é erro
+            #[cfg(target_os = "linux")]
+            let gave_up = e == linux::CANCELLED;
+            #[cfg(not(target_os = "linux"))]
+            let gave_up = false;
+            if gave_up {
+                log_info!("capture", "Nothing was chosen in the system's dialog, so no capture started");
+            } else {
+                log_error!("capture", "The system refused to start the capture: {e}");
+            }
             stop.store(true, Ordering::Relaxed);
             WebSocketSink::discard(&token);
             return Err(e);
