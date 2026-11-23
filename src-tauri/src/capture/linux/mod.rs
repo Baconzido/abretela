@@ -14,10 +14,13 @@
 //! porque ele não pode demorar: enquanto um retorno trabalha, os frames
 //! seguintes se acumulam e nada mais anda, nem o pedido para parar.
 
+mod audio;
 mod frame;
 
+pub use audio::PipewireAudio;
+
 use super::{
-    contracts::{AudioSource, AudioTarget, BoxError, FrameSink, RunningVideo, Source, SourceInfo, VideoConfig, VideoSource},
+    contracts::{AudioTarget, FrameSink, RunningVideo, Source, SourceInfo, VideoConfig, VideoSource},
     convert::{bgra_to_i420, BgraScaler},
     packet::{PixelFormat, VideoPacket},
 };
@@ -216,11 +219,17 @@ fn convert_frames(mailbox: &Mailbox, config: VideoConfig, sink: &dyn FrameSink, 
             Ok((dw, dh, scaled)) => {
                 let mut packet = VideoPacket::new(PixelFormat::I420, dw, dh);
                 bgra_to_i420(dw as usize, dh as usize, &scaled, packet.pixels_mut());
-                sink.video(packet);
                 sent += 1;
                 if sent == 1 {
-                    crate::log_info!("capture", "First frame captured: {}x{} from the system, sent as {dw}x{dh}", raw.w, raw.h);
+                    crate::log_info!(
+                        "capture",
+                        "First frame captured: {}x{} from the system, sent as {dw}x{dh} (converted on the {})",
+                        raw.w,
+                        raw.h,
+                        packet.format().converted_on()
+                    );
                 }
+                sink.video(packet);
             }
             Err(e) if sent == 0 => crate::log_warn!("capture", "Could not resize a frame: {e}"),
             Err(_) => {}
@@ -446,27 +455,34 @@ fn receive_frames(chosen: Chosen, config: VideoConfig, sink: Arc<dyn FrameSink>,
         spawn("capture-convert", move || convert_frames(&mailbox, config, sink.as_ref(), &stop))?
     };
 
-    // o laço só volta quando alguém manda: este relógio olha o `stop`
+    let ran = run_until_stopped(&mainloop, &stop, &sink);
+    // a conversão para junto com os frames
+    stop.store(true, Ordering::Relaxed);
+    let _ = converter.join();
+    ran
+}
+
+/// Roda o laço do PipeWire até `stop` (ou até o destino fechar, e aí liga o
+/// `stop`). O laço só volta quando alguém manda: um relógio olha o `stop`.
+fn run_until_stopped(mainloop: &pw::main_loop::MainLoopRc, stop: &Arc<AtomicBool>, sink: &Arc<dyn FrameSink>) -> Result<(), String> {
     let weak = mainloop.downgrade();
-    let timer_stop = stop.clone();
+    let (stop, sink) = (stop.clone(), sink.clone());
     let timer = mainloop.loop_().add_timer(move |_| {
         if sink.is_closed() {
-            timer_stop.store(true, Ordering::Relaxed);
+            stop.store(true, Ordering::Relaxed);
         }
-        if timer_stop.load(Ordering::Relaxed) {
+        if stop.load(Ordering::Relaxed) {
             if let Some(mainloop) = weak.upgrade() {
                 mainloop.quit();
             }
         }
     });
-    let armed = timer.update_timer(Some(STOP_CHECK), Some(STOP_CHECK)).into_result();
-    if armed.is_ok() {
-        mainloop.run();
-    }
-    // a conversão para junto com os frames
-    stop.store(true, Ordering::Relaxed);
-    let _ = converter.join();
-    armed.map(|_| ()).map_err(|e| format!("PipeWire: could not arm the stop timer: {e}"))
+    timer
+        .update_timer(Some(STOP_CHECK), Some(STOP_CHECK))
+        .into_result()
+        .map_err(|e| format!("PipeWire: could not arm the stop timer: {e}"))?;
+    mainloop.run();
+    Ok(())
 }
 
 pub struct PortalSource;
@@ -481,8 +497,11 @@ impl VideoSource for PortalSource {
     }
 
     fn inspect(&self, id: &str) -> Option<SourceInfo> {
-        // o som do sistema ainda não é capturado no Linux
-        (id == PORTAL).then(|| SourceInfo { description: "what gets chosen in the system's dialog".into(), audio: None })
+        // o som é sempre o do sistema inteiro (`audio.rs`): não há processo a escolher
+        (id == PORTAL).then(|| SourceInfo {
+            description: "what gets chosen in the system's dialog".into(),
+            audio: Some(AudioTarget { pid: 0, include_tree: false }),
+        })
     }
 
     fn start(
@@ -541,14 +560,6 @@ impl VideoSource for PortalSource {
 
 fn spawn(name: &str, run: impl FnOnce() + Send + 'static) -> Result<JoinHandle<()>, String> {
     thread::Builder::new().name(name.into()).spawn(run).map_err(|e| format!("could not start the {name} thread: {e}"))
-}
-
-pub struct PipewireAudio;
-
-impl AudioSource for PipewireAudio {
-    fn run(&self, _target: AudioTarget, _sink: Arc<dyn FrameSink>, _stop: Arc<AtomicBool>) -> Result<(), BoxError> {
-        Err("a captura de som ainda não existe no Linux".into())
-    }
 }
 
 #[cfg(test)]
