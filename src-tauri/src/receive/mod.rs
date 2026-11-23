@@ -11,6 +11,7 @@
 
 pub mod bridge;
 pub mod commands;
+mod opus;
 mod watcher;
 
 #[cfg(test)]

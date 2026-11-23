@@ -3,7 +3,7 @@
 //! "public address") e a thread que junta tudo. A mesma forma de
 //! `send/viewer.rs`, no sentido contrário.
 
-use super::{MediaSink, Outgoing, Received, Signals};
+use super::{opus::Rejoin, MediaSink, Outgoing, Received, Signals};
 use crate::encode::has_idr;
 use crate::send::stun;
 use std::{
@@ -128,6 +128,7 @@ pub fn spawn(
         first_media: None,
         video_clock: None,
         audio_clock: None,
+        audio_rejoin: Rejoin::default(),
         frames: 0,
         frames_skipped: 0,
         audio_packets: 0,
@@ -197,6 +198,7 @@ struct Session {
     first_media: Option<Instant>,
     video_clock: Option<Clock>,
     audio_clock: Option<Clock>,
+    audio_rejoin: Rejoin,
     frames: u64,
     frames_skipped: u64,
     audio_packets: u64,
@@ -243,12 +245,13 @@ impl Session {
         self.signals.send(&self.id, Outgoing::State { state: "closed".into() });
         log_info!(
             "watching",
-            "Closed the native connection {} {} ({reason}; {} frames and {} audio packets received, {} frames skipped waiting for a keyframe)",
+            "Closed the native connection {} {} ({reason}; {} frames and {} audio packets received, {} frames skipped waiting for a keyframe, {} audio packets that came split in two)",
             self.who,
             self.since(),
             self.frames,
             self.audio_packets,
-            self.frames_skipped
+            self.frames_skipped,
+            self.audio_rejoin.joined
         );
     }
 
@@ -377,9 +380,12 @@ impl Session {
                 self.sink.video(Received { data: data.data, keyframe, timestamp });
             }
             Codec::Opus => {
-                self.audio_packets += 1;
                 let timestamp = clock(&mut self.audio_clock).at(data.time);
-                self.sink.audio(Received { data: data.data, keyframe: true, timestamp });
+                // quem envia às vezes parte um pacote grande em dois
+                for (timestamp, data) in self.audio_rejoin.push(timestamp, &data.data) {
+                    self.audio_packets += 1;
+                    self.sink.audio(Received { data, keyframe: true, timestamp });
+                }
             }
             _ => {}
         }
