@@ -5,7 +5,8 @@
 //! (`00 00 00 01` antes de cada NAL), pronto para mandar por WebRTC. Cada
 //! sistema tem a própria implementação: no Windows, Media Foundation (a placa
 //! de vídeo pelo NVENC/AMF/QuickSync, com o codificador do próprio Windows no
-//! processador como reserva); no macOS, VideoToolbox.
+//! processador como reserva); no macOS, VideoToolbox; no Linux, OpenH264 (no
+//! processador).
 //!
 //! A codificação é em fila: `encode` só entrega o frame e volta; cada frame
 //! codificado sai por [`OnEncoded`] assim que fica pronto (na placa de vídeo,

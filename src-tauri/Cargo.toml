@@ -62,10 +62,18 @@ objc2-core-graphics = "0.3"
 [target.'cfg(target_os = "linux")'.dependencies]
 # WebRTC do envio nativo; criptografia em Rust puro (sem OpenSSL)
 str0m = { version = "0.25.0", default-features = false, features = ["rust-crypto"] }
+# codificador H.264 no processador (encode/linux), compilado junto com o app
+openh264 = "0.9.10"
+# as opções de bitrate do OpenH264 que a openh264 não expõe
+openh264-sys2 = "0.9.10"
 
 [target.'cfg(unix)'.dependencies]
 # hora, placas de rede e uso do processador nos logs (logging/unix)
 libc = "0.2"
+
+# o OpenH264 sem otimização não codifica em tempo real, nem para testar
+[profile.dev.package.openh264-sys2]
+opt-level = 3
 
 [profile.release]
 strip = true
