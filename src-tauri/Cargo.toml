@@ -66,6 +66,10 @@ str0m = { version = "0.25.0", default-features = false, features = ["rust-crypto
 openh264 = "0.9.10"
 # as opções de bitrate do OpenH264 que a openh264 não expõe
 openh264-sys2 = "0.9.10"
+# a janela do sistema que escolhe a tela ou a janela (xdg-desktop-portal)
+ashpd = { version = "0.14.3", default-features = false, features = ["tokio", "screencast"] }
+# os frames da tela escolhida (capture/linux)
+pipewire = "0.10.1"
 
 [target.'cfg(unix)'.dependencies]
 # hora, placas de rede e uso do processador nos logs (logging/unix)
