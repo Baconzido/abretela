@@ -6,6 +6,9 @@ import { isTauri } from "./env";
 /** O app está rodando no macOS? */
 export const isMac = () => /Macintosh|Mac OS X/.test(navigator.userAgent);
 
+/** O app (ou a página) está rodando no Linux de um computador? O Android também se diz Linux. */
+export const isLinux = () => /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+
 /**
  * Ao pôr um elemento em tela cheia, a janela do app precisa ir junto? No
  * WebView2 (Windows) a tela cheia de um elemento só enche a janela. No

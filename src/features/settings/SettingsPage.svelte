@@ -5,7 +5,7 @@
   import { findUpdate, installUpdate, type Update } from "../../lib/update";
   import { LANGUAGES, prefs, t, type Theme } from "../../lib/prefs.svelte";
   import { canSendFromWebView } from "../../lib/capture/support";
-  import { isMac } from "../../lib/platform";
+  import { isLinux, isMac } from "../../lib/platform";
   import Icon, { type IconName } from "../../ui/Icon.svelte";
   import Toggle from "../../ui/Toggle.svelte";
   import Credits from "../../ui/Credits.svelte";
@@ -112,6 +112,7 @@
   }
   // no macOS a "bandeja" é a barra de menus
   const mac = isMac();
+  const linux = isLinux();
 
   let autostart = $state(false);
   let autostartReady = $state(false);
@@ -204,8 +205,8 @@
           <div class="group-label"><Icon name="monitor" size={15} /> {t("behavior")}</div>
           <div class="toggles">
             <Toggle
-              label={t(mac ? "startWithMac" : "startWithWindows")}
-              hint={t(mac ? "startWithMacHint" : "startWithWindowsHint")}
+              label={t(mac ? "startWithMac" : linux ? "startWithLinux" : "startWithWindows")}
+              hint={t(mac ? "startWithMacHint" : linux ? "startWithLinuxHint" : "startWithWindowsHint")}
               checked={autostart}
               disabled={!autostartReady}
               onchange={setAutostart}
@@ -228,12 +229,15 @@
         <section class="settings-group">
           <div class="group-label"><Icon name="tv" size={15} /> {t("performance")}</div>
           <div class="toggles">
-            <Toggle
-              label={t("hwAccel")}
-              hint={t("hwAccelHint")}
-              checked={prefs.hwAccel}
-              onchange={(v) => (prefs.hwAccel = v)}
-            />
+            <!-- no Linux a captura e o codificador são sempre no processador: não há o que ligar -->
+            {#if !linux}
+              <Toggle
+                label={t("hwAccel")}
+                hint={t("hwAccelHint")}
+                checked={prefs.hwAccel}
+                onchange={(v) => (prefs.hwAccel = v)}
+              />
+            {/if}
             {#if canSendFromWebView()}
               <Toggle
                 label={t("nativeSend")}

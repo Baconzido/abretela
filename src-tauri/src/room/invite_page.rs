@@ -33,6 +33,8 @@ struct Texts {
     download: &'static str,
     /// O mesmo botão para quem abre o link num Mac.
     download_mac: &'static str,
+    /// E para quem abre num Linux.
+    download_linux: &'static str,
     person: &'static str,
     people: &'static str,
     live: &'static str,
@@ -49,6 +51,7 @@ fn texts(lang: &str) -> Texts {
             no_app: "Ainda não tem o AbreTela?",
             download: "Baixar para Windows",
             download_mac: "Baixar para Mac",
+            download_linux: "Baixar para Linux",
             person: "1 pessoa na sala",
             people: "{n} pessoas na sala",
             live: "{n} ao vivo",
@@ -62,6 +65,7 @@ fn texts(lang: &str) -> Texts {
             no_app: "¿Todavía no tienes AbreTela?",
             download: "Descargar para Windows",
             download_mac: "Descargar para Mac",
+            download_linux: "Descargar para Linux",
             person: "1 persona en la sala",
             people: "{n} personas en la sala",
             live: "{n} en vivo",
@@ -75,6 +79,7 @@ fn texts(lang: &str) -> Texts {
             no_app: "AbreTela をまだ持っていませんか？",
             download: "Windows 版をダウンロード",
             download_mac: "Mac 版をダウンロード",
+            download_linux: "Linux 版をダウンロード",
             person: "ルームに 1 人",
             people: "ルームに {n} 人",
             live: "{n} 人が配信中",
@@ -88,6 +93,7 @@ fn texts(lang: &str) -> Texts {
             no_app: "아직 AbreTela가 없나요?",
             download: "Windows용 다운로드",
             download_mac: "Mac용 다운로드",
+            download_linux: "Linux용 다운로드",
             person: "방에 1명",
             people: "방에 {n}명",
             live: "{n}명 방송 중",
@@ -101,6 +107,7 @@ fn texts(lang: &str) -> Texts {
             no_app: "还没有 AbreTela？",
             download: "下载 Windows 版",
             download_mac: "下载 Mac 版",
+            download_linux: "下载 Linux 版",
             person: "房间里有 1 人",
             people: "房间里有 {n} 人",
             live: "{n} 人正在直播",
@@ -114,6 +121,7 @@ fn texts(lang: &str) -> Texts {
             no_app: "Don't have AbreTela yet?",
             download: "Download for Windows",
             download_mac: "Download for Mac",
+            download_linux: "Download for Linux",
             person: "1 person in the room",
             people: "{n} people in the room",
             live: "{n} live",
@@ -205,7 +213,7 @@ impl InvitePage {
     <p>{no_app}</p>
     <a class="btn download" href="{DOWNLOAD_URL}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
-      <span id="download" data-mac="{download_mac}">{download}</span>
+      <span id="download" data-mac="{download_mac}" data-linux="{download_linux}">{download}</span>
     </a>
   </div>
 </main>
@@ -219,6 +227,7 @@ impl InvitePage {
   // o botão de download fala do sistema de quem abriu o link
   var download = document.getElementById("download");
   if (/Macintosh/.test(navigator.userAgent)) download.textContent = download.dataset.mac;
+  else if (/Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent)) download.textContent = download.dataset.linux;
   // no celular não existe o app: o botão principal vira assistir no navegador
   if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) document.body.classList.add("mobile");
   else location.href = target;
@@ -232,6 +241,7 @@ impl InvitePage {
             no_app = escape(t.no_app),
             download = escape(t.download),
             download_mac = escape(t.download_mac),
+            download_linux = escape(t.download_linux),
         )
     }
 }
@@ -261,13 +271,17 @@ mod tests {
         assert!(en.contains("Watch in the browser"));
     }
 
-    /// O botão nasce com o texto do Windows e leva o do Mac, que a página
-    /// troca se quem abriu o link estiver num Mac.
+    /// O botão nasce com o texto do Windows e leva o do Mac e o do Linux, que
+    /// a página troca conforme o sistema de quem abriu o link.
     #[test]
-    fn offers_the_download_for_windows_and_for_mac() {
-        for (lang, windows, mac) in [("pt", "Baixar para Windows", "Baixar para Mac"), ("xx", "Download for Windows", "Download for Mac")] {
+    fn offers_the_download_for_each_system() {
+        for (lang, windows, mac, linux) in [
+            ("pt", "Baixar para Windows", "Baixar para Mac", "Baixar para Linux"),
+            ("xx", "Download for Windows", "Download for Mac", "Download for Linux"),
+        ] {
             let html = InvitePage { host_name: "Ana".into(), lang: lang.into() }.render(None, RoomStats::default());
-            assert!(html.contains(&format!(r#"<span id="download" data-mac="{mac}">{windows}</span>"#)), "{lang}");
+            let button = format!(r#"<span id="download" data-mac="{mac}" data-linux="{linux}">{windows}</span>"#);
+            assert!(html.contains(&button), "{lang}");
         }
     }
 }
