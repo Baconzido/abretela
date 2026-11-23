@@ -1,6 +1,6 @@
 //! Log em arquivo, um por dia (`abretela-AAAA-MM-DD.log`), na pasta `logs` ao
-//! lado do executável instalado (no macOS, na pasta de logs do app, em
-//! `~/Library/Logs`). Guarda os últimos dias e apaga o resto.
+//! lado do executável instalado (no macOS e no Linux, na pasta de logs do app:
+//! `~/Library/Logs` e `~/.local/share`). Guarda os últimos dias e apaga o resto.
 //! Recebe linhas do Rust e do frontend (comando `log`).
 //!
 //! O texto é em inglês e pensado para ser lido por gente:
@@ -48,8 +48,8 @@ fn now() -> Now {
     }
 }
 
-#[cfg(target_os = "macos")]
-use mac::now;
+#[cfg(unix)]
+use unix::now;
 
 fn open(dir: &Path, day: &str) -> (Option<File>, u64) {
     let path = dir.join(format!("abretela-{day}.log"));
@@ -81,8 +81,9 @@ fn prune(dir: &Path) {
 }
 
 /// Pasta `logs` ao lado do .exe; se não der para escrever lá, usa `fallback`.
-/// No macOS é sempre `fallback`: o executável fica dentro do `.app`, e
-/// escrever ali quebraria a assinatura do app.
+/// Fora do Windows é sempre `fallback`: no macOS o executável fica dentro do
+/// `.app` (escrever ali quebraria a assinatura) e, no Linux, em pastas do
+/// sistema.
 fn pick_dir(fallback: PathBuf) -> PathBuf {
     #[cfg(windows)]
     {
@@ -171,8 +172,8 @@ fn append(today: &str, text: &str) {
 pub fn os_version() -> String {
     #[cfg(windows)]
     return windows_version();
-    #[cfg(target_os = "macos")]
-    return mac::os_version();
+    #[cfg(unix)]
+    return unix::os_version();
 }
 
 /// Ex.: "Windows 10 22H2 (build 19045.5737)". O Windows 11 ainda se apresenta
@@ -270,11 +271,11 @@ macro_rules! log_error {
 }
 
 // depois das macros, que eles usam
-#[cfg(target_os = "macos")]
-mod mac;
+#[cfg(unix)]
+mod unix;
 #[cfg(windows)]
 pub mod network;
 #[cfg(windows)]
 pub mod perf;
-#[cfg(target_os = "macos")]
-pub use mac::{network, perf};
+#[cfg(unix)]
+pub use unix::{network, perf};

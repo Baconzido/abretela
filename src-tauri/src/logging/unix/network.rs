@@ -1,7 +1,8 @@
-//! Lista as placas de rede do Mac no log: nome, tipo e IPs. Ajuda a achar VPNs
-//! e redes estranhas quando ninguém consegue se conectar. (A versão do Windows
-//! fica em `logging/network.rs`.)
+//! Lista as placas de rede no log (macOS e Linux): nome, tipo e IPs. Ajuda a
+//! achar VPNs e redes estranhas quando ninguém consegue se conectar. (A versão
+//! do Windows fica em `logging/network.rs`.)
 
+use super::system::adapter_kind;
 use std::{
     ffi::CStr,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
@@ -109,19 +110,6 @@ pub fn usable_addresses() -> Vec<IpAddr> {
     query().map(|adapters| usable(&adapters)).unwrap_or_default()
 }
 
-/// O tipo da placa, pelo nome que o macOS dá: (texto, parece VPN ou virtual).
-fn kind(name: &str) -> (&'static str, bool) {
-    let prefix = name.trim_end_matches(|c: char| c.is_ascii_digit());
-    match prefix {
-        "en" => ("Ethernet/Wi-Fi", false),
-        "utun" | "ipsec" | "ppp" | "gif" | "stf" | "tun" | "tap" | "wg" => ("tunnel", true),
-        "bridge" | "vmnet" | "vmenet" | "vnic" | "feth" => ("virtual", true),
-        "awdl" | "llw" => ("Apple wireless direct", false),
-        "pdp_ip" => ("mobile", false),
-        _ => ("other", false),
-    }
-}
-
 /// Escreve uma linha por placa de rede ligada que tem endereço de verdade (e
 /// conta as outras).
 pub fn log_adapters(why: &str) {
@@ -143,13 +131,13 @@ pub fn log_adapters(why: &str) {
             down.push(a.name.clone());
             continue;
         }
-        // o macOS tem várias placas internas só com fe80 (awdl, llw, utun do sistema)
+        // placas internas só com fe80 (no macOS: awdl, llw, utun do sistema)
         if a.addresses.iter().all(|address| is_link_local(&address.ip)) {
             without_address += 1;
             continue;
         }
         has_ipv6 |= a.addresses.iter().any(|address| address.ip.is_ipv6() && !is_link_local(&address.ip));
-        let (kind, looks_virtual) = kind(&a.name);
+        let (kind, looks_virtual) = adapter_kind(&a.name);
         if looks_virtual {
             virtuals.push(a.name.clone());
         }
@@ -217,18 +205,10 @@ mod tests {
         assert_eq!(prefix_of(None), 0);
     }
 
-    #[test]
-    fn guesses_the_kind_from_the_name() {
-        assert_eq!(kind("en0"), ("Ethernet/Wi-Fi", false));
-        assert_eq!(kind("utun12"), ("tunnel", true));
-        assert_eq!(kind("bridge100"), ("virtual", true));
-        assert_eq!(kind("anpi0"), ("other", false));
-    }
-
-    /// Lista as placas deste Mac (veja com --nocapture): o loopback sempre
+    /// Lista as placas deste computador (veja com --nocapture): o loopback sempre
     /// existe, e nenhum endereço utilizável é loopback ou automático.
     #[test]
-    fn lists_the_adapters_of_this_mac() {
+    fn lists_the_adapters_of_this_computer() {
         log_adapters("in a test");
         let adapters = query().expect("getifaddrs works");
         assert!(adapters.iter().any(|a| a.loopback), "the loopback adapter is there");

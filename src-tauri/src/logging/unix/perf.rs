@@ -1,8 +1,9 @@
-//! Quanto o Mac gasta enquanto transmite: a cada 30 s, enquanto a captura
-//! roda, uma linha no log com o processador usado pelo app, em % do Mac
-//! inteiro. (A versão do Windows, em `logging/perf.rs`, também mede o WebView
-//! e a placa de vídeo; no macOS os processos do WebKit não são filhos do app e
-//! o sistema não dá o uso da placa por processo.)
+//! Quanto o computador gasta enquanto transmite (macOS e Linux): a cada 30 s,
+//! enquanto a captura roda, uma linha no log com o processador usado pelo
+//! app, em % do computador inteiro. (A versão do Windows, em
+//! `logging/perf.rs`, também mede o WebView e a placa de vídeo; aqui os
+//! processos do WebKit não são filhos do app e o sistema não dá o uso da
+//! placa por processo.)
 
 use std::{
     sync::{
@@ -31,7 +32,7 @@ pub fn watch(mode: &'static str, stop: Arc<AtomicBool>) {
                 next += EVERY;
                 log_info!(
                     "perf",
-                    "While sharing ({mode}): processor {:.1}% of the Mac (app only; the WebView and the graphics chip are not measured on macOS)",
+                    "While sharing ({mode}): processor {:.1}% of the computer (app only; the WebView and the graphics chip are not measured on this system)",
                     cpu.sample()
                 );
             }
@@ -47,7 +48,7 @@ struct CpuMeter {
 }
 
 impl CpuMeter {
-    /// % do Mac inteiro que o app usou desde a última chamada.
+    /// % do computador inteiro que o app usou desde a última chamada.
     fn sample(&mut self) -> f64 {
         let now = Instant::now();
         let used = cpu_time();
@@ -90,7 +91,7 @@ mod tests {
         }
         assert!(cpu_time() - before >= Duration::from_millis(100), "a busy loop uses the processor");
         let percent = cpu.sample();
-        println!("busy loop result {x}, {percent:.1}% of the Mac");
+        println!("busy loop result {x}, {percent:.1}% of the computer");
         assert!(percent > 0.0 && percent <= 100.0, "{percent}");
     }
 }

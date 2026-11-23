@@ -1,23 +1,7 @@
-//! O que o log precisa do macOS: a hora local, a versão do sistema, as placas
-//! de rede (`network`) e o uso do processador (`perf`).
+//! O que é só do macOS nos logs: a versão do sistema e os nomes das placas
+//! de rede.
 
-pub mod network;
-pub mod perf;
-
-use super::Now;
 use std::ffi::CStr;
-
-pub fn now() -> Now {
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe {
-        let t = libc::time(std::ptr::null_mut());
-        libc::localtime_r(&t, &mut tm);
-    }
-    Now {
-        date: format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday),
-        time: format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec),
-    }
-}
 
 /// Um texto do `sysctl` (ex.: `kern.osproductversion`).
 fn sysctl_string(name: &CStr) -> Option<String> {
@@ -46,22 +30,22 @@ pub fn os_version() -> String {
     out
 }
 
+/// O tipo da placa, pelo nome que o macOS dá: (texto, parece VPN ou virtual).
+pub fn adapter_kind(name: &str) -> (&'static str, bool) {
+    let prefix = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    match prefix {
+        "en" => ("Ethernet/Wi-Fi", false),
+        "utun" | "ipsec" | "ppp" | "gif" | "stf" | "tun" | "tap" | "wg" => ("tunnel", true),
+        "bridge" | "vmnet" | "vmenet" | "vnic" | "feth" => ("virtual", true),
+        "awdl" | "llw" => ("Apple wireless direct", false),
+        "pdp_ip" => ("mobile", false),
+        _ => ("other", false),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn now_looks_like_a_date_and_a_time() {
-        let now = now();
-        let digits = |text: &str, sep: char| {
-            text.split(sep).map(|part| part.parse::<u32>().expect("a number")).collect::<Vec<_>>()
-        };
-        let date = digits(&now.date, '-');
-        let time = digits(&now.time, ':');
-        assert_eq!((now.date.len(), now.time.len()), (10, 8), "{} {}", now.date, now.time);
-        assert!(date[0] >= 2024 && (1..=12).contains(&date[1]) && (1..=31).contains(&date[2]));
-        assert!(time[0] < 24 && time[1] < 60 && time[2] < 61);
-    }
 
     #[test]
     fn os_version_has_the_number_and_the_build() {
@@ -70,5 +54,13 @@ mod tests {
         let number = version.strip_prefix("macOS ").expect("starts with macOS");
         assert!(number.starts_with(|c: char| c.is_ascii_digit()), "{version}");
         assert!(version.contains("(build "), "{version}");
+    }
+
+    #[test]
+    fn guesses_the_kind_from_the_name() {
+        assert_eq!(adapter_kind("en0"), ("Ethernet/Wi-Fi", false));
+        assert_eq!(adapter_kind("utun12"), ("tunnel", true));
+        assert_eq!(adapter_kind("bridge100"), ("virtual", true));
+        assert_eq!(adapter_kind("anpi0"), ("other", false));
     }
 }
