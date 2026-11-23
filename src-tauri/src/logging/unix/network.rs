@@ -29,6 +29,12 @@ fn is_link_local(ip: &IpAddr) -> bool {
     }
 }
 
+/// IPv6 que sai para a internet (2000::/3). Os de rede interna (fd00::/8, de
+/// VPNs e máquinas virtuais) não contam.
+fn is_global_ipv6(ip: &IpAddr) -> bool {
+    matches!(ip, IpAddr::V6(v6) if v6.segments()[0] & 0xe000 == 0x2000)
+}
+
 /// O endereço de um `sockaddr` (IPv4 ou IPv6).
 unsafe fn sockaddr_to_ip(sa: *const libc::sockaddr) -> Option<IpAddr> {
     if sa.is_null() {
@@ -136,7 +142,7 @@ pub fn log_adapters(why: &str) {
             without_address += 1;
             continue;
         }
-        has_ipv6 |= a.addresses.iter().any(|address| address.ip.is_ipv6() && !is_link_local(&address.ip));
+        has_ipv6 |= a.addresses.iter().any(|address| is_global_ipv6(&address.ip));
         let (kind, looks_virtual) = adapter_kind(&a.name);
         if looks_virtual {
             virtuals.push(a.name.clone());
@@ -196,6 +202,15 @@ mod tests {
         let expected: Vec<IpAddr> =
             ["192.168.0.5", "2804:14c::1234", "100.64.0.7"].iter().map(|ip| ip.parse().unwrap()).collect();
         assert_eq!(usable(&adapters), expected);
+    }
+
+    #[test]
+    fn only_global_ipv6_counts_as_internet() {
+        let ip = |text: &str| text.parse::<IpAddr>().unwrap();
+        assert!(is_global_ipv6(&ip("2804:14c::1234")));
+        assert!(!is_global_ipv6(&ip("fd07:b51a:cc66::1")), "internal network");
+        assert!(!is_global_ipv6(&ip("fe80::1")), "link-local");
+        assert!(!is_global_ipv6(&ip("192.168.0.5")));
     }
 
     #[test]
