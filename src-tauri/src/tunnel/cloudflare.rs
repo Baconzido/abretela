@@ -60,6 +60,10 @@ async fn start(port: u16) -> Result<(Child, String), String> {
     .kill_on_drop(true);
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
+    #[cfg(target_os = "linux")]
+    unsafe {
+        cmd.pre_exec(die_with_parent);
+    }
 
     let mut child = cmd
         .spawn()
@@ -140,6 +144,18 @@ fn kill_with_app(child: &Child) {
     }
 }
 
+/// No Linux o próprio sistema encerra o cloudflared se o app fechar de forma
+/// inesperada: roda no processo filho, logo antes de ele virar o cloudflared.
+/// O aviso vale para a thread que abriu o processo, e não para o app inteiro;
+/// aqui quem abre é uma thread do tokio, que vive enquanto o app vive.
+#[cfg(target_os = "linux")]
+fn die_with_parent() -> std::io::Result<()> {
+    if unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// No macOS não existe Job Object: se o app fechar de forma inesperada, o
 /// cloudflared fica rodando sem dono (o sistema o entrega ao launchd, pid 1).
 /// Antes de abrir um túnel novo, encerra os que sobraram assim.
@@ -185,6 +201,37 @@ mod tests {
         assert_eq!(find_tunnel_url(line).as_deref(), Some("https://some-random-words.trycloudflare.com"));
         assert_eq!(find_tunnel_url("INF Requesting new quick Tunnel on https://api.trycloudflare.com..."), None);
         assert_eq!(find_tunnel_url("INF Version 2026.11.1"), None);
+    }
+
+    /// Quem abriu o processo some (aqui, uma thread que termina) e o sistema
+    /// encerra o processo sozinho.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_process_dies_when_whoever_started_it_is_gone() {
+        use std::os::unix::process::CommandExt;
+        let pid = std::thread::spawn(|| {
+            let mut cmd = std::process::Command::new("/bin/sleep");
+            cmd.arg("30");
+            unsafe {
+                cmd.pre_exec(die_with_parent);
+            }
+            cmd.spawn().unwrap().id() as libc::pid_t
+        })
+        .join()
+        .unwrap();
+        // já morto, o processo fica esperando o pai recolher: waitpid devolve o pid dele
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut reaped = 0;
+        while reaped == 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+            reaped = unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) };
+        }
+        if reaped == 0 {
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+        assert_eq!(reaped, pid, "the process was killed when its starter went away");
     }
 
     /// Um processo que perdeu o dono aparece; um que ainda tem dono, não.
