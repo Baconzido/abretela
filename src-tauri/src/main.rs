@@ -8,8 +8,6 @@ mod logging;
 mod app;
 mod capture;
 mod encode;
-// ainda sem uso no app: entra com o transporte de quem assiste sem WebRTC no WebView
-#[allow(dead_code)]
 mod receive;
 mod room;
 mod selfhost;
@@ -114,6 +112,9 @@ fn main() {
             send::commands::native_viewer_view,
             send::commands::native_viewer_close,
             send::commands::native_send_stop,
+            receive::commands::native_watch_open,
+            receive::commands::native_watch_candidate,
+            receive::commands::native_watch_close,
             app::commands::log_network,
             startup::splash_status,
             startup::splash_done,

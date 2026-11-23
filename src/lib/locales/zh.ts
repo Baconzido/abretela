@@ -251,6 +251,7 @@ export const zh: Messages = {
   connectionFailed: "连接失败。",
   connectionFailedWith: "与 {name} 的连接失败。",
   tryAgain: "重试",
+  missingCodecs: "此系统缺少视频编解码器。请安装 gstreamer1.0-libav 软件包，然后重新打开应用。",
   previewSuffix: "（预览）",
   mute: "静音",
   unmute: "取消静音",

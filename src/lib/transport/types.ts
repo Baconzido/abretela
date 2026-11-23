@@ -25,6 +25,8 @@ export type TransportSignal =
 export type RemoteView = {
   stream: MediaStream | null;
   state: "connecting" | "connected" | "failed";
+  /** Por que falhou, quando se sabe: `codecs` = o sistema não tem como decodificar o vídeo. */
+  problem?: "codecs";
 };
 
 /** O que eu estou transmitindo. */
@@ -84,3 +86,12 @@ export interface MediaTransport {
   /** Fecha tudo (saí da sala). */
   close(): void;
 }
+
+/**
+ * A parte do transporte que assiste os outros: a malha (WebRTC do WebView) ou
+ * a recepção nativa, onde o WebView não tem WebRTC.
+ */
+export type Watcher = Pick<
+  MediaTransport,
+  "watch" | "stopWatching" | "requestView" | "describeStuck" | "handleSignal" | "refreshIceServers" | "removePeer" | "close"
+>;

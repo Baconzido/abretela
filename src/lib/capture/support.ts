@@ -12,3 +12,10 @@ export const canSendFromWebView = () =>
  * ligou a opção, e sempre onde o WebView não consegue mandar.
  */
 export const shouldSendNatively = (preference: boolean) => preference || !canSendFromWebView();
+
+/**
+ * O WebView consegue receber a tela dos outros pelo WebRTC dele? O WebKitGTK
+ * (Linux) não tem WebRTC: lá quem recebe é o app (`transport/nativeWatch.ts`).
+ */
+export const canReceiveInWebView = () =>
+  typeof (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection !== "undefined";

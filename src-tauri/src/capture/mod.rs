@@ -48,7 +48,7 @@ static VIDEO: linux::PortalSource = linux::PortalSource;
 #[cfg(target_os = "linux")]
 static AUDIO: linux::PipewireAudio = linux::PipewireAudio;
 
-pub use sink::serve;
+pub use sink::{port as frames_port, serve};
 
 struct Session {
     token: String,
@@ -58,7 +58,7 @@ struct Session {
 
 static SESSION: Mutex<Option<Session>> = Mutex::new(None);
 
-fn random_token() -> String {
+pub(crate) fn random_token() -> String {
     use std::hash::{BuildHasher, RandomState};
     let a = RandomState::new().hash_one(Instant::now());
     let b = RandomState::new().hash_one(std::process::id());

@@ -252,6 +252,7 @@ export const en: Messages = {
   connectionFailed: "Connection failed.",
   connectionFailedWith: "Connection with {name} failed.",
   tryAgain: "Try again",
+  missingCodecs: "This system is missing its video codecs. Install the gstreamer1.0-libav package and open the app again.",
   previewSuffix: "(preview)",
   mute: "Mute",
   unmute: "Unmute",

@@ -252,6 +252,7 @@ export const es: Messages = {
   connectionFailed: "Error de conexión.",
   connectionFailedWith: "Error de conexión con {name}.",
   tryAgain: "Reintentar",
+  missingCodecs: "A este sistema le faltan los códecs de vídeo. Instala el paquete gstreamer1.0-libav y vuelve a abrir la app.",
   previewSuffix: "(vista previa)",
   mute: "Silenciar",
   unmute: "Activar sonido",

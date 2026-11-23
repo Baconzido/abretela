@@ -257,6 +257,7 @@ export const pt = {
   connectionFailed: "Falha na conexão.",
   connectionFailedWith: "Falha na conexão com {name}.",
   tryAgain: "Tentar de novo",
+  missingCodecs: "Este sistema está sem os codecs de vídeo. Instale o pacote gstreamer1.0-libav e abra o app de novo.",
   previewSuffix: "(prévia)",
   mute: "Silenciar",
   unmute: "Ativar som",

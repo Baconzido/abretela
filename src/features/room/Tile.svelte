@@ -112,7 +112,11 @@
         <span class="spinner"></span>
         {#if !compact}{t("connectingStream")}{/if}
       {:else}
-        <span>{compact ? t("connectionFailed") : t("connectionFailedWith", { name })}</span>
+        {#if view.problem === "codecs" && !compact}
+          <span class="problem">{t("missingCodecs")}</span>
+        {:else}
+          <span>{compact ? t("connectionFailed") : t("connectionFailedWith", { name })}</span>
+        {/if}
         <button class="btn small" onclick={stop(onretry)}>{t("tryAgain")}</button>
       {/if}
     </div>
@@ -188,6 +192,10 @@
     height: 100%;
     object-fit: contain;
     display: block;
+  }
+
+  .tile-overlay .problem {
+    max-width: 320px;
   }
 
   .tile-overlay {

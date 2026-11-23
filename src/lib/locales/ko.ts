@@ -252,6 +252,7 @@ export const ko: Messages = {
   connectionFailed: "연결 실패.",
   connectionFailedWith: "{name}님과의 연결에 실패했습니다.",
   tryAgain: "다시 시도",
+  missingCodecs: "이 시스템에 비디오 코덱이 없습니다. gstreamer1.0-libav 패키지를 설치한 뒤 앱을 다시 열어 주세요.",
   previewSuffix: "(미리보기)",
   mute: "음소거",
   unmute: "음소거 해제",

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { canSendFromWebView, shouldSendNatively } from "./support";
+import { canReceiveInWebView, canSendFromWebView, shouldSendNatively } from "./support";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -16,5 +16,17 @@ describe("quem manda a minha tela", () => {
     expect(canSendFromWebView()).toBe(false);
     expect(shouldSendNatively(false)).toBe(true);
     expect(shouldSendNatively(true)).toBe(true);
+  });
+});
+
+describe("quem recebe a tela dos outros", () => {
+  it("com RTCPeerConnection (WebView2, WKWebView), o próprio WebView", () => {
+    vi.stubGlobal("RTCPeerConnection", class {});
+    expect(canReceiveInWebView()).toBe(true);
+  });
+
+  it("sem ele (WebKitGTK do Linux), o app recebe", () => {
+    vi.stubGlobal("RTCPeerConnection", undefined);
+    expect(canReceiveInWebView()).toBe(false);
   });
 });

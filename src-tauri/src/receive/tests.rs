@@ -211,3 +211,111 @@ fn receives_what_a_sender_on_this_machine_sends() {
     assert!(packets.iter().all(|p| &p.data[..] == [0xF8, 0xFF, 0xFE]), "audio packets arrived whole");
     assert!(states.contains(&"connected".to_string()), "the app is told it connected: {states:?}");
 }
+
+/// Conta o que chega (e, com `WATCH_DUMP`, guarda o H.264 para conferir no ffmpeg).
+#[derive(Default)]
+struct Count {
+    frames: Mutex<Vec<(bool, usize, Duration)>>,
+    audio: Mutex<u64>,
+    dump: Mutex<Vec<u8>>,
+}
+
+impl MediaSink for Count {
+    fn video(&self, frame: Received) {
+        self.frames.lock().unwrap().push((frame.keyframe, frame.data.len(), frame.timestamp));
+        if std::env::var("WATCH_DUMP").is_ok() {
+            self.dump.lock().unwrap().extend_from_slice(&frame.data);
+        }
+    }
+    fn audio(&self, _packet: Received) {
+        *self.audio.lock().unwrap() += 1;
+    }
+}
+
+/// Manual: assiste um envio nativo de verdade (o teste `native_send_browser`,
+/// nesta máquina ou em outra) fazendo o papel da página dele: a mesma
+/// sinalização por HTTP, mas quem recebe é a recepção nativa.
+///
+/// Num terminal: `NATIVE_SYNTH=1 cargo test native_send_browser -- --ignored --nocapture`
+/// Em outro (ou em outra máquina, com `WATCH_URL=http://<ip>:3011`):
+/// `cargo test native_watch_http -- --ignored --nocapture`
+/// (`WATCH_SECS`, padrão 10; `WATCH_DUMP=arquivo.h264`; `WATCH_ONLY=v4` ou `v6`)
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn native_watch_http() {
+    let base = std::env::var("WATCH_URL").unwrap_or_else(|_| "http://127.0.0.1:3011".into());
+    let secs: u64 = std::env::var("WATCH_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(10);
+    let id = "viewer-native";
+    // o mesmo TLS que o resto do app usa (o cliente precisa de um escolhido, mesmo para http)
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let http = reqwest::Client::new();
+    let post = |path: &str, body: serde_json::Value| {
+        let request = http.post(format!("{base}/{path}?id={id}")).body(body.to_string());
+        async move { request.send().await.expect("the sender is reachable").text().await.unwrap() }
+    };
+
+    let (to_sender, from_watcher) = mpsc::channel();
+    let signals: Arc<dyn Signals> = Arc::new(Wire(to_sender));
+    let sink = Arc::new(Count::default());
+    println!("asking {base} to watch: {}", post("watch", serde_json::json!({})).await);
+
+    let deadline = Instant::now() + Duration::from_secs(secs);
+    let mut states = Vec::new();
+    while Instant::now() < deadline {
+        // o que quem transmite mandou (a oferta e as rotas dele)
+        let events = http.get(format!("{base}/events?id={id}")).send().await.unwrap().text().await.unwrap();
+        for msg in serde_json::from_str::<Vec<serde_json::Value>>(&events).unwrap_or_default() {
+            match msg["kind"].as_str() {
+                Some("offer") => {
+                    // WATCH_ONLY=v4 ou v6: escuta só num tipo de endereço (para achar por onde a conexão fecha)
+                    let only = std::env::var("WATCH_ONLY").unwrap_or_default();
+                    let addresses: Vec<_> = crate::logging::network::usable_addresses()
+                        .into_iter()
+                        .filter(|ip| match only.as_str() {
+                            "v4" => ip.is_ipv4(),
+                            "v6" => ip.is_ipv6(),
+                            _ => true,
+                        })
+                        .collect();
+                    println!("got the offer; listening on {addresses:?}");
+                    open_on("sender", "\"Sender\"", msg["sdp"].as_str().unwrap(), addresses, signals.clone(), sink.clone()).unwrap();
+                }
+                Some("ice") => {
+                    let _ = remote_candidate("sender", msg["candidate"].as_str().unwrap_or_default().to_string());
+                }
+                _ => {}
+            }
+        }
+        // o que a recepção quer dizer a quem transmite
+        while let Ok(msg) = from_watcher.try_recv() {
+            match msg {
+                Outgoing::Answer { sdp } => drop(post("answer", serde_json::json!({ "sdp": sdp })).await),
+                Outgoing::Ice { candidate, .. } => drop(post("ice", serde_json::json!({ "candidate": candidate })).await),
+                Outgoing::State { state } => states.push(state),
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    close("sender");
+
+    let frames = sink.frames.lock().unwrap();
+    let bytes: usize = frames.iter().map(|f| f.1).sum();
+    let span = frames.last().map_or(Duration::ZERO, |f| f.2);
+    println!(
+        "{} frames ({} keyframes, {} KB) over {:.1}s of media = {:.1} fps, {:.0} kbps; {} audio packets; states {states:?}",
+        frames.len(),
+        frames.iter().filter(|f| f.0).count(),
+        bytes / 1024,
+        span.as_secs_f64(),
+        frames.len() as f64 / span.as_secs_f64().max(0.001),
+        bytes as f64 * 8.0 / 1000.0 / span.as_secs_f64().max(0.001),
+        sink.audio.lock().unwrap(),
+    );
+    if let Ok(path) = std::env::var("WATCH_DUMP") {
+        std::fs::write(&path, &*sink.dump.lock().unwrap()).unwrap();
+        println!("saved to {path}");
+    }
+    assert!(frames.len() > 10, "video arrived");
+    assert!(frames[0].0, "starts with a keyframe");
+    assert!(frames.windows(2).all(|pair| pair[0].2 <= pair[1].2), "in order");
+}

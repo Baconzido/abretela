@@ -102,6 +102,11 @@ impl WebSocketSink {
     }
 }
 
+/// A porta do servidor local, depois de `serve` começar.
+pub fn port() -> Option<u16> {
+    PORT.get().copied()
+}
+
 /// Sobe o servidor local dos frames (uma vez, ao abrir o app).
 pub async fn serve() -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;

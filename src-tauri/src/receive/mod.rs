@@ -10,6 +10,7 @@
 //! Compila em todos os sistemas, para os testes rodarem em qualquer um.
 
 pub mod bridge;
+pub mod commands;
 mod watcher;
 
 #[cfg(test)]

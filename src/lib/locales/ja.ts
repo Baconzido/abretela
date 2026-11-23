@@ -252,6 +252,7 @@ export const ja: Messages = {
   connectionFailed: "接続に失敗しました。",
   connectionFailedWith: "{name} との接続に失敗しました。",
   tryAgain: "再試行",
+  missingCodecs: "このシステムにはビデオコーデックがありません。gstreamer1.0-libav パッケージをインストールして、アプリを開き直してください。",
   previewSuffix: "（プレビュー）",
   mute: "ミュート",
   unmute: "ミュート解除",
