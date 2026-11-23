@@ -482,7 +482,7 @@ impl Sender {
                             );
                             if software_only && !config.gpu {
                                 log_info!("sharing", "Hardware acceleration is off, so native sending encodes on the processor");
-                            } else if !e.hardware() && !software_only {
+                            } else if !e.hardware() && !software_only && encode::HAS_HARDWARE {
                                 log_warn!("sharing", "No graphics card encoder worked here, encoding on the processor");
                             }
                             layer.encoder = Some(e);

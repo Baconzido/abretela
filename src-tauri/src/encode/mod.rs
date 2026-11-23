@@ -23,6 +23,10 @@ mod mac;
 #[cfg(windows)]
 mod win;
 
+/// Este sistema tem codificador pela placa de vídeo? No Linux ainda não: lá
+/// é sempre o processador, e isso não é uma falha para avisar.
+pub const HAS_HARDWARE: bool = cfg!(not(target_os = "linux"));
+
 /// Como codificar.
 #[derive(Clone, Copy, Debug)]
 pub struct EncoderConfig {
@@ -32,6 +36,8 @@ pub struct EncoderConfig {
     /// Bits por segundo pretendidos (o controle de banda muda depois).
     pub bitrate: u32,
     /// Só usar o processador (para testar a reserva).
+    // no Linux só há o processador, e ninguém lê este campo
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub software_only: bool,
 }
 
