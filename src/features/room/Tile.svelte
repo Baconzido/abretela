@@ -51,6 +51,9 @@
     audio.muted = muted;
   });
 
+  // onde o som não sai pelo elemento de vídeo (recepção nativa), o volume vai para quem o toca
+  $effect(() => view.setVolume?.(muted ? 0 : volume));
+
   function srcObject(node: HTMLVideoElement, stream: MediaStream | null) {
     node.srcObject = stream;
     return {

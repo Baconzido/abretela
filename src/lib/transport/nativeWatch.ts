@@ -13,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { describeError, log } from "../log";
 import { createDecodedStream, type DecodedStream } from "../watch/decode";
+import { armSound } from "../watch/sound";
 import type { TransportHost, TransportSignal, Watcher } from "./types";
 
 /** O que o Rust manda (evento `native-watch`). */
@@ -41,6 +42,8 @@ export class NativeWatcher implements Watcher {
 
   constructor(private host: TransportHost) {
     this.unlisten = listen<NativeWatchEvent>("native-watch", (e) => this.onNative(e.payload));
+    // o som só sai se for acordado num gesto; o clique em Assistir é um deles
+    armSound();
     log.info("watching", "Using native receiving: this WebView has no WebRTC, so the app itself receives the screens");
   }
 
@@ -121,7 +124,7 @@ export class NativeWatcher implements Watcher {
       socket.binaryType = "arraybuffer";
       socket.onmessage = (ev) => decoded!.push(ev.data as ArrayBuffer);
       reception.socket = socket;
-      this.host.onRemote(from, { stream: decoded.stream });
+      this.host.onRemote(from, { stream: decoded.stream, setVolume: decoded.setVolume });
       return true;
     } catch (e) {
       log.error("watching", `Could not start receiving from ${this.host.nameOf(from)}: ${describeError(e)}`);

@@ -16,6 +16,7 @@ import {
   payload,
   readEncodedHeader,
 } from "../capture/packet";
+import { openPlayer } from "./sound";
 
 /** Constrained Baseline 3.1: o que o app manda quando o frame não traz o SPS. */
 const DEFAULT_CODEC = "avc1.42e01f";
@@ -82,8 +83,10 @@ export function s16ToF32(samples: Int16Array): Float32Array {
 // ---------- WebCodecs ----------
 
 export type DecodedStream = {
-  /** Vídeo (do canvas) e som (do tocador), como uma transmissão comum. */
+  /** O vídeo (do canvas). O som não vem aqui: toca direto na saída (`sound.ts`). */
   stream: MediaStream;
+  /** O volume do som desta tela, de 0 (mudo) a 1. */
+  setVolume: (volume: number) => void;
   /** Um pacote do WebSocket da recepção nativa. */
   push: (buf: ArrayBuffer) => void;
   close: () => void;
@@ -128,16 +131,9 @@ export async function createDecodedStream(): Promise<DecodedStream> {
   const ctx = canvas.getContext("2d", { alpha: false })!;
   const tracks: MediaStreamTrack[] = [canvas.captureStream().getVideoTracks()[0]];
 
-  // som: o mesmo tocador da captura nativa
-  const audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
-  await audioCtx.audioWorklet.addModule("/audio-worklet.js");
-  const player = new AudioWorkletNode(audioCtx, "pcm-player", { numberOfInputs: 0, outputChannelCount: [2] });
-  const dest = audioCtx.createMediaStreamDestination();
-  dest.channelCount = 2;
-  player.connect(dest);
-  // sem esperar: se o sistema segurar o som (política de reprodução), o vídeo não pode ficar preso junto
-  audioCtx.resume().catch(() => {});
-  tracks.push(dest.stream.getAudioTracks()[0]);
+  // som: o tocador da captura nativa, direto na saída (`sound.ts` diz por quê)
+  const player = await openPlayer();
+  let toldSilent = false;
 
   let closed = false;
   let decoded = 0;
@@ -150,6 +146,7 @@ export async function createDecodedStream(): Promise<DecodedStream> {
 
   const result: DecodedStream = {
     stream: new MediaStream(tracks),
+    setVolume: player.setVolume,
     push,
     close,
     onUnsupported: null,
@@ -197,18 +194,30 @@ export async function createDecodedStream(): Promise<DecodedStream> {
     decoder.configure({ codec: next, optimizeForLatency: true });
   }
 
-  const audioDecoder = new AudioDecoder({
-    output: (data) => {
-      try {
-        const samples = stereoSamples(data);
-        player.port.postMessage(samples, [samples.buffer]);
-      } finally {
-        data.close();
-      }
-    },
-    error: (e) => log.warn("watching", `The audio decoder failed: ${describeError(e)}`),
-  });
-  audioDecoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+  let audioFailures = 0;
+  let audioDecoder = openAudioDecoder();
+
+  function openAudioDecoder() {
+    const opened = new AudioDecoder({
+      output: (data) => {
+        try {
+          player.play(stereoSamples(data));
+          if (!toldSilent && !player.audible()) {
+            toldSilent = true;
+            log.warn("watching", "The sound is arriving but this WebView is holding it until someone clicks in the window");
+          }
+        } finally {
+          data.close();
+        }
+      },
+      // um erro fecha o decodificador; o próximo pacote abre outro (`audio`)
+      error: (e) => {
+        if (++audioFailures <= 3) log.warn("watching", `The audio decoder failed: ${describeError(e)}`);
+      },
+    });
+    opened.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+    return opened;
+  }
 
   function video(buf: ArrayBuffer) {
     const { keyframe, timestampUs } = readEncodedHeader(buf);
@@ -244,12 +253,22 @@ export async function createDecodedStream(): Promise<DecodedStream> {
   }
 
   function audio(buf: ArrayBuffer) {
+    if (audioDecoder.state === "closed") {
+      // um pacote ruim não pode calar o som até o fim: cada pacote Opus se
+      // decodifica sozinho, então dá para recomeçar do seguinte
+      try {
+        audioDecoder = openAudioDecoder();
+      } catch (e) {
+        if (++audioFailures <= 3) log.warn("watching", `Could not reopen the audio decoder: ${describeError(e)}`);
+        return;
+      }
+    }
     if (audioDecoder.state !== "configured") return;
     const { timestampUs } = readEncodedHeader(buf);
     try {
       audioDecoder.decode(new EncodedAudioChunk({ type: "key", timestamp: timestampUs, data: payload(buf) }));
     } catch (e) {
-      log.warn("watching", `Could not decode an audio packet: ${describeError(e)}`);
+      if (++audioFailures <= 3) log.warn("watching", `Could not decode an audio packet: ${describeError(e)}`);
     }
   }
 
@@ -268,7 +287,7 @@ export async function createDecodedStream(): Promise<DecodedStream> {
       if (audioDecoder.state !== "closed") audioDecoder.close();
     } catch {}
     tracks.forEach((t) => t.stop());
-    audioCtx.close().catch(() => {});
+    player.close();
   }
 
   return result;

@@ -27,6 +27,12 @@ export type RemoteView = {
   state: "connecting" | "connected" | "failed";
   /** Por que falhou, quando se sabe: `codecs` = o sistema não tem como decodificar o vídeo. */
   problem?: "codecs";
+  /**
+   * Só existe quando o som desta tela não sai pelo elemento de vídeo (a
+   * recepção nativa, no Linux, toca direto na saída): quem mostra a tela diz
+   * aqui o volume, de 0 (mudo) a 1.
+   */
+  setVolume?: (volume: number) => void;
 };
 
 /** O que eu estou transmitindo. */
