@@ -10,8 +10,10 @@ const TARGETS = {
   "win32-x64": ["cloudflared-windows-amd64.exe", "cloudflared-x86_64-pc-windows-msvc.exe"],
   "darwin-arm64": ["cloudflared-darwin-arm64.tgz", "cloudflared-aarch64-apple-darwin"],
   "darwin-x64": ["cloudflared-darwin-amd64.tgz", "cloudflared-x86_64-apple-darwin"],
-  "linux-x64": ["cloudflared-linux-amd64", "cloudflared-x86_64-unknown-linux-gnu"],
-  "linux-arm64": ["cloudflared-linux-arm64", "cloudflared-aarch64-unknown-linux-gnu"],
+  // no Linux o sidecar é instalado em /usr/bin: com o nome do app na frente,
+  // para não brigar com um cloudflared que a pessoa já tenha instalado
+  "linux-x64": ["cloudflared-linux-amd64", "abretela-cloudflared-x86_64-unknown-linux-gnu"],
+  "linux-arm64": ["cloudflared-linux-arm64", "abretela-cloudflared-aarch64-unknown-linux-gnu"],
 };
 
 const key = `${process.platform}-${process.arch}`;

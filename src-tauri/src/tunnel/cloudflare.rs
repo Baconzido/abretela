@@ -34,8 +34,11 @@ impl CloudflareTunnel {
 }
 
 async fn start(port: u16) -> Result<(Child, String), String> {
-    // "cloudflared.exe" no Windows, "cloudflared" nos outros
-    let name = format!("cloudflared{}", std::env::consts::EXE_SUFFIX);
+    // "cloudflared.exe" no Windows e "cloudflared" no macOS, ao lado do app;
+    // no Linux o pacote instala em /usr/bin, então leva o nome do app na
+    // frente para não brigar com um cloudflared que a pessoa já tenha
+    let sidecar = if cfg!(target_os = "linux") { "abretela-cloudflared" } else { "cloudflared" };
+    let name = format!("{sidecar}{}", std::env::consts::EXE_SUFFIX);
     let exe = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name(&name);
     // testes rodam numa pasta abaixo de target/debug (qual, depende da versão
     // do Cargo); o sidecar fica em target/debug
