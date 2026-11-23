@@ -9,6 +9,7 @@
 //!
 //! Compila em todos os sistemas, para os testes rodarem em qualquer um.
 
+pub mod bridge;
 mod watcher;
 
 #[cfg(test)]
