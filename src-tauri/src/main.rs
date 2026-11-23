@@ -8,6 +8,9 @@ mod logging;
 mod app;
 mod capture;
 mod encode;
+// ainda sem uso no app: entra com o transporte de quem assiste sem WebRTC no WebView
+#[allow(dead_code)]
+mod receive;
 mod room;
 mod selfhost;
 mod send;
