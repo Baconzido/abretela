@@ -272,7 +272,7 @@ export const ja: Messages = {
   refresh: "更新",
   searching: "探しています...",
   nothingFound: "見つかりませんでした。",
-  systemPicks: "「画面をひらく」をクリックすると、共有する画面またはウィンドウをシステムがたずねます。",
+  systemPicks: "「{button}」をクリックすると、共有する画面またはウィンドウをシステムがたずねます。",
   screenOrWindow: "画面またはウィンドウ",
   screenPermission: "AbreTela が画面をキャプチャするには許可が必要です。「システム設定 > プライバシーとセキュリティ > 画面収録とシステムオーディオ録音」で許可してから、アプリを開き直してください。",
   screenPermissionAllow: "許可",

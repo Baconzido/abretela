@@ -272,7 +272,7 @@ export const en: Messages = {
   refresh: "Refresh",
   searching: "Searching...",
   nothingFound: "Nothing found.",
-  systemPicks: "When you click Open screen, the system asks which screen or window to share.",
+  systemPicks: "When you click {button}, the system asks which screen or window to share.",
   screenOrWindow: "Screen or window",
   screenPermission: "AbreTela needs your permission to capture the screen. Allow it in System Settings > Privacy & Security > Screen & System Audio Recording, then open the app again.",
   screenPermissionAllow: "Allow",

@@ -278,7 +278,7 @@ export const pt = {
   refresh: "Atualizar",
   searching: "Procurando...",
   nothingFound: "Nada encontrado.",
-  systemPicks: "Ao clicar em Abrir tela, o sistema pergunta qual tela ou janela compartilhar.",
+  systemPicks: "Ao clicar em {button}, o sistema pergunta qual tela ou janela compartilhar.",
   screenOrWindow: "Tela ou janela",
   screenPermission: "O AbreTela precisa da sua permissão para capturar a tela. Permita em Ajustes do Sistema > Privacidade e Segurança > Gravação de Tela e Áudio do Sistema e abra o app de novo.",
   screenPermissionAllow: "Permitir",

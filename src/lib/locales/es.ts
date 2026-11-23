@@ -272,7 +272,7 @@ export const es: Messages = {
   refresh: "Actualizar",
   searching: "Buscando...",
   nothingFound: "No se encontró nada.",
-  systemPicks: "Al hacer clic en Abrir pantalla, el sistema pregunta qué pantalla o ventana compartir.",
+  systemPicks: "Al hacer clic en {button}, el sistema pregunta qué pantalla o ventana compartir.",
   screenOrWindow: "Pantalla o ventana",
   screenPermission: "AbreTela necesita tu permiso para capturar la pantalla. Permítelo en Ajustes del Sistema > Privacidad y seguridad > Grabación de pantalla y audio del sistema y vuelve a abrir la app.",
   screenPermissionAllow: "Permitir",

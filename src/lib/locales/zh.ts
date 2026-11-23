@@ -271,7 +271,7 @@ export const zh: Messages = {
   refresh: "刷新",
   searching: "正在搜索...",
   nothingFound: "什么也没找到。",
-  systemPicks: "点击“打开屏幕”后，系统会询问要分享哪个屏幕或窗口。",
+  systemPicks: "点击“{button}”后，系统会询问要分享哪个屏幕或窗口。",
   screenOrWindow: "屏幕或窗口",
   screenPermission: "AbreTela 需要你的许可才能捕获屏幕。请在“系统设置 > 隐私与安全性 > 录屏与系统录音”中允许，然后重新打开应用。",
   screenPermissionAllow: "允许",

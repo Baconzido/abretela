@@ -106,7 +106,7 @@
       {:else if system}
         <div class="picker-empty system">
           <span class="muted"><Icon name="monitor" size={40} /></span>
-          <span class="muted">{t("systemPicks")}</span>
+          <span class="muted">{t("systemPicks", { button: switching ? t("switchTo") : t("startStreaming") })}</span>
         </div>
       {:else if !allowed}
         <div class="picker-empty permission">
