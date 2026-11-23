@@ -1,5 +1,5 @@
 //! Captura nativa de telas, janelas e som. Junta as peças de `contracts.rs`:
-//! a fonte de vídeo e de áudio do sistema (`win/` ou `mac/`), a conversão e o
+//! a fonte de vídeo e de áudio do sistema (`win/`, `mac/` ou `linux/`), a conversão e o
 //! destino dos pacotes (hoje o WebSocket local de `sink.rs`, que o app
 //! transforma em faixas para o WebRTC).
 
@@ -7,6 +7,8 @@ pub mod commands;
 pub mod contracts;
 mod convert;
 pub mod packet;
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod mac;
 mod sink;
@@ -26,6 +28,8 @@ use std::{
 };
 
 /// Peças específicas do sistema (prioridade de thread etc.).
+#[cfg(target_os = "linux")]
+use linux as platform;
 #[cfg(target_os = "macos")]
 use mac as platform;
 #[cfg(windows)]
@@ -39,6 +43,10 @@ static AUDIO: win::WasapiLoopback = win::WasapiLoopback;
 static VIDEO: mac::SckSource = mac::SckSource;
 #[cfg(target_os = "macos")]
 static AUDIO: mac::SckAudio = mac::SckAudio;
+#[cfg(target_os = "linux")]
+static VIDEO: linux::PortalSource = linux::PortalSource;
+#[cfg(target_os = "linux")]
+static AUDIO: linux::PipewireAudio = linux::PipewireAudio;
 
 pub use sink::serve;
 

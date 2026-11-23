@@ -30,9 +30,10 @@ opus-pure = "0.2.3"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "json", "multipart"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 # servidor próprio (ROADMAP, seção 6): o token da Cloudflare e a chave de
-# administrador no Gerenciador de Credenciais do Windows (no Mac, nas Chaves);
+# administrador no Gerenciador de Credenciais do Windows (no Mac, nas Chaves;
+# no Linux, no chaveiro do sistema pelo Secret Service);
 # hash e números aleatórios pelo mesmo ring que o rustls já usa
-keyring = { version = "3.6.3", features = ["windows-native", "apple-native"] }
+keyring = { version = "3.6.3", features = ["windows-native", "apple-native", "sync-secret-service", "crypto-rust"] }
 ring = "0.17.14"
 
 [target.'cfg(windows)'.dependencies]
@@ -47,7 +48,6 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 [target.'cfg(target_os = "macos")'.dependencies]
 # WebRTC do envio nativo; criptografia do próprio macOS
 str0m = { version = "0.25.0", default-features = false, features = ["apple-crypto"] }
-libc = "0.2"
 objc2-video-toolbox = "0.3"
 objc2-core-media = "0.3"
 objc2-core-video = "0.3"
@@ -58,6 +58,14 @@ objc2-screen-capture-kit = "0.3"
 block2 = "0.6"
 dispatch2 = "0.3"
 objc2-core-graphics = "0.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# WebRTC do envio nativo; criptografia em Rust puro (sem OpenSSL)
+str0m = { version = "0.25.0", default-features = false, features = ["rust-crypto"] }
+
+[target.'cfg(unix)'.dependencies]
+# hora, placas de rede e uso do processador nos logs (logging/unix)
+libc = "0.2"
 
 [profile.release]
 strip = true

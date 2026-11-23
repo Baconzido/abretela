@@ -15,6 +15,8 @@
 use crate::capture::{contracts::BoxError, packet::VideoPacket};
 use std::{sync::Arc, time::Duration};
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod mac;
 #[cfg(windows)]
@@ -70,6 +72,8 @@ pub fn open(config: EncoderConfig, on_encoded: OnEncoded) -> Result<Box<dyn Vide
     return Ok(Box::new(win::MfEncoder::open(config, on_encoded)?));
     #[cfg(target_os = "macos")]
     return Ok(Box::new(mac::VtEncoder::open(config, on_encoded)?));
+    #[cfg(target_os = "linux")]
+    return Ok(Box::new(linux::OpenH264Encoder::open(config, on_encoded)?));
 }
 
 /// O frame (Annex B) tem um quadro IDR (NAL tipo 5)?
