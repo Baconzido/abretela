@@ -22,7 +22,7 @@ use openh264::{
     formats::YUVSlices,
     OpenH264API, Timestamp,
 };
-use openh264_sys2::{ENCODER_OPTION_BITRATE, ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_ALL, TagBitrateInfo};
+use openh264_sys2::{ENCODER_OPTION_BITRATE, ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_0, SPATIAL_LAYER_ALL, TagBitrateInfo};
 use std::{
     ffi::c_void,
     sync::{
@@ -60,6 +60,8 @@ struct Shared {
     inside: AtomicU32,
     /// O bitrate pretendido (a thread aplica antes do próximo frame).
     bitrate: AtomicU32,
+    /// Quantas vezes o OpenH264 recusou um bitrate novo.
+    refused: AtomicU32,
     /// Alguém pediu um quadro-chave: o próximo frame codificado é um.
     keyframe: AtomicBool,
     timings: Mutex<Timings>,
@@ -97,27 +99,33 @@ fn bitrate_for(bps: u32) -> i32 {
     bps.clamp(50_000, i32::MAX as u32) as i32
 }
 
-/// Muda o bitrate sem reiniciar o codificador. O teto precisa subir antes do
-/// alvo e descer depois, senão o OpenH264 recusa um alvo acima do teto.
-fn apply_bitrate(encoder: &mut Encoder, from: u32, to: u32) {
-    let set = |encoder: &mut Encoder, option, bps: u32| {
-        let mut info = TagBitrateInfo { iLayer: SPATIAL_LAYER_ALL, iBitrate: bitrate_for(bps) };
+/// Muda o bitrate sem reiniciar o codificador e devolve quantas das mudanças
+/// o OpenH264 recusou.
+///
+/// O OpenH264 tem dois tetos, o da camada e o geral, e recusa um alvo acima
+/// do teto da camada, que nasce igual ao bitrate com que o codificador abriu.
+/// Por isso os tetos sobem antes do alvo e descem depois dele.
+fn apply_bitrate(encoder: &mut Encoder, from: u32, to: u32) -> u32 {
+    let set = |encoder: &mut Encoder, option, layer| {
+        let mut info = TagBitrateInfo { iLayer: layer, iBitrate: bitrate_for(to) };
         // SAFETY: o codificador já foi iniciado (só é chamado depois do primeiro
         // frame) e as duas opções recebem um `SBitrateInfo`, que é esta
         // estrutura; ela vive até a chamada voltar.
         unsafe { encoder.raw_api().set_option(option, (&raw mut info).cast::<c_void>()) }
     };
-    let order = if to > from {
-        [ENCODER_OPTION_MAX_BITRATE, ENCODER_OPTION_BITRATE]
-    } else {
-        [ENCODER_OPTION_BITRATE, ENCODER_OPTION_MAX_BITRATE]
-    };
-    for option in order {
-        let status = set(encoder, option, to);
+    // há uma camada só (`SPATIAL_LAYER_0`); `SPATIAL_LAYER_ALL` é o total
+    let ceilings = [(ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_0), (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_ALL)];
+    let target = [(ENCODER_OPTION_BITRATE, SPATIAL_LAYER_ALL)];
+    let order = if to > from { [ceilings[0], ceilings[1], target[0]] } else { [target[0], ceilings[0], ceilings[1]] };
+    let mut refused = 0;
+    for (option, layer) in order {
+        let status = set(encoder, option, layer);
         if status != 0 {
+            refused += 1;
             crate::log_warn!("sharing", "OpenH264 refused the new bitrate of {} kbps (error {status})", to / 1000);
         }
     }
+    refused
 }
 
 impl OpenH264Encoder {
@@ -142,6 +150,7 @@ impl OpenH264Encoder {
         let shared = Arc::new(Shared {
             inside: AtomicU32::new(0),
             bitrate: AtomicU32::new(config.bitrate),
+            refused: AtomicU32::new(0),
             keyframe: AtomicBool::new(false),
             timings: Mutex::default(),
             spare: Mutex::default(),
@@ -157,7 +166,8 @@ impl OpenH264Encoder {
                 while let Ok(job) = jobs.recv() {
                     let wanted = state.bitrate.load(Ordering::Relaxed);
                     if started && wanted != applied {
-                        apply_bitrate(&mut encoder, applied, wanted);
+                        let refused = apply_bitrate(&mut encoder, applied, wanted);
+                        state.refused.fetch_add(refused, Ordering::Relaxed);
                         applied = wanted;
                     }
                     if state.keyframe.swap(false, Ordering::Relaxed) && started {
@@ -382,6 +392,41 @@ mod tests {
         let (low, restarted) = run(&mut encoder);
         assert!(low * 3 < high, "half a second at 200 kbps ({low} bytes) should be much smaller than at 2000 kbps ({high} bytes)");
         assert!(!restarted, "changing the bitrate does not start over with a keyframe");
+    }
+
+    #[test]
+    fn the_bitrate_goes_up_past_where_it_started_and_back() {
+        // abre abaixo do teto, como quando o primeiro espectador chega e a
+        // estimativa de banda ainda é baixa
+        let (mut encoder, out) = open(320, 180, 300_000);
+        let mut n = 0;
+        // os bytes da segunda metade de 30 frames, como no teste acima
+        let mut run = |encoder: &mut OpenH264Encoder| {
+            for _ in 0..15 {
+                encode(encoder, &busy(320, 180, n), n, false);
+                n += 1;
+            }
+            let before = out.lock().unwrap().len();
+            for _ in 0..15 {
+                encode(encoder, &busy(320, 180, n), n, false);
+                n += 1;
+            }
+            out.lock().unwrap()[before..].iter().map(|f| f.data.len()).sum::<usize>()
+        };
+        run(&mut encoder);
+        // a rede melhorou, piorou e melhorou de novo, duas vezes. Os três
+        // bitrates ficam abaixo do que esta imagem pequena consegue gastar.
+        for round in 1..=2 {
+            encoder.set_bitrate(600_000);
+            let high = run(&mut encoder);
+            encoder.set_bitrate(100_000);
+            let low = run(&mut encoder);
+            encoder.set_bitrate(300_000);
+            let middle = run(&mut encoder);
+            assert!(low * 2 < middle, "round {round}: 300 kbps ({middle} bytes) against 100 kbps ({low} bytes)");
+            assert!(middle * 3 < high * 2, "round {round}: 600 kbps ({high} bytes) against 300 kbps ({middle} bytes)");
+        }
+        assert_eq!(encoder.shared.refused.load(Ordering::Relaxed), 0, "OpenH264 took every change");
     }
 
     /// Quantos frames por segundo o codificador aguenta, sem o ritmo da captura:
