@@ -4,7 +4,7 @@
 
 <h1 align="center">AbreTela</h1>
 
-<p align="center">Compartilhamento de tela entre amigos, com áudio, para Windows e Mac.</p>
+<p align="center">Compartilhamento de tela entre amigos, com áudio, para Windows, Mac e Linux.</p>
 
 ---
 
@@ -47,12 +47,28 @@ Compatível com Macs com chip da Apple (M1 ou mais novo) e macOS 14 ou mais novo
 > - **Rede local:** permite a conexão direta com quem está na mesma rede que você.
 > - Depois de uma atualização, o macOS pode pedir a gravação de tela de novo.
 
+### Linux
+
+1. Acesse a página de **[Releases](https://github.com/beqm/abretela/releases/latest)** e baixe o arquivo `AbreTela_..._amd64.deb`.
+2. Instale com `sudo apt install ./AbreTela_..._amd64.deb` (o `apt` traz junto o que o app precisa).
+3. Ao abrir, o app procura versões novas; para instalar uma, o sistema pede a sua senha.
+
+Feito para o Ubuntu 24.04 com GNOME (Wayland). Outras distribuições podem funcionar, mas ainda não foram testadas.
+
+> [!IMPORTANT]
+> **O que muda no Linux**
+>
+> - **Escolha da tela:** ao clicar em **Abrir minha tela**, quem pergunta qual tela ou janela transmitir é o próprio sistema, numa janela dele. Para parar, use o botão do app ou o indicador de compartilhamento do sistema.
+> - **Som:** o som transmitido é o do sistema inteiro, não o de um aplicativo só. Ele inclui o som do próprio AbreTela: se você transmite com som e assiste alguém ao mesmo tempo, essa pessoa ouve o próprio som de volta. Nesse caso, transmita sem som.
+> - **Vídeo dos outros:** para assistir, o sistema precisa do pacote `gstreamer1.0-libav` (o `.deb` já pede). Sem ele, o app avisa em vez de mostrar o vídeo.
+> - **Bandeja:** o ícone do app aparece junto dos outros indicadores, no canto de cima. Em sistemas sem essa área, abrir o AbreTela de novo traz a janela de volta.
+
 ## Como usar
 
 1. **Primeira abertura:** informe o nome que será exibido para os outros participantes. Ele pode ser alterado depois em **Configurações > Geral > Perfil**.
 2. **Criar uma sala:** clique em **Criar sala**. Quem cria a sala é o anfitrião.
 3. **Convidar:** clique em **Copiar convite** e envie o link por Discord, WhatsApp ou qualquer outro canal. O link já inclui a senha da sala e abre o AbreTela diretamente nela. Quem ainda não tem o app encontra o botão de download na própria página do convite.
-4. **Transmitir:** clique em **Abrir minha tela** e escolha um aplicativo ou uma tela inteira. Ao escolher um aplicativo, apenas o áudio dele é transmitido. Durante a transmissão, **Trocar tela** muda o conteúdo sem desconectar quem está assistindo.
+4. **Transmitir:** clique em **Abrir minha tela** e escolha um aplicativo ou uma tela inteira (no Linux, o sistema pergunta). Ao escolher um aplicativo, apenas o áudio dele é transmitido. Durante a transmissão, **Trocar tela** muda o conteúdo sem desconectar quem está assistindo.
 5. **Assistir:** clique em **Assistir** ao lado de quem está ao vivo. É possível acompanhar várias transmissões em grade, dar foco a uma delas, abrir em tela cheia ou em uma janela flutuante que fica sobre outros aplicativos. Ao passar o mouse sobre um participante, é exibida uma prévia da tela dele.
 
 ### Recomendações
