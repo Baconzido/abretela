@@ -55,6 +55,7 @@ impl WebViewSink {
     }
 
     /// Frames descartados porque o WebView ficou para trás.
+    #[cfg(test)]
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
     }
@@ -68,9 +69,15 @@ impl MediaSink for WebViewSink {
         }
         let packet = encoded_packet(KIND_ENCODED_VIDEO, frame.keyframe, frame.timestamp, &frame.data);
         let sent = self.tx.try_send(packet).is_ok();
-        self.behind.store(!sent, Ordering::Relaxed);
+        let was_behind = self.behind.swap(!sent, Ordering::Relaxed);
         if !sent {
             self.dropped.fetch_add(1, Ordering::Relaxed);
+        } else if was_behind {
+            crate::log_warn!(
+                "watching",
+                "The WebView fell behind the video being received; back at a keyframe ({} frames skipped so far)",
+                self.dropped.load(Ordering::Relaxed)
+            );
         }
     }
 
